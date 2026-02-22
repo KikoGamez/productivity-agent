@@ -1,7 +1,7 @@
 import os
+import json
 import base64
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
@@ -10,49 +10,37 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
 ]
 
-TOKEN_PATH = "token.json"
-CREDENTIALS_PATH = "credentials.json"
-
-
-def _setup_files_from_env():
-    """Write credentials files from env vars when running on a server."""
-    # credentials.json — desde base64
-    creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_B64")
-    if creds_b64:
-        with open(CREDENTIALS_PATH, "wb") as f:
-            f.write(base64.b64decode(creds_b64))
-
-    # token.json — intentar primero JSON directo, luego base64
-    token_json = os.environ.get("GOOGLE_TOKEN_JSON")
-    token_b64 = os.environ.get("GOOGLE_TOKEN_B64")
-
-    if token_json:
-        with open(TOKEN_PATH, "w") as f:
-            f.write(token_json)
-    elif token_b64:
-        with open(TOKEN_PATH, "wb") as f:
-            f.write(base64.b64decode(token_b64))
-
 
 def get_credentials() -> Credentials:
-    """Get or refresh Google OAuth2 credentials."""
-    _setup_files_from_env()
+    """Build Google OAuth2 credentials from environment variables."""
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
+    if not refresh_token:
+        raise RuntimeError(
+            "GOOGLE_REFRESH_TOKEN no está configurado en las variables de entorno."
+        )
 
-    creds = None
-    if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+    # Read client_id and client_secret from GOOGLE_CREDENTIALS_B64
+    creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_B64")
+    if not creds_b64:
+        raise RuntimeError(
+            "GOOGLE_CREDENTIALS_B64 no está configurado en las variables de entorno."
+        )
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            raise RuntimeError(
-                "Google auth: no hay token válido y no se puede abrir el navegador en el servidor. "
-                "Asegúrate de que GOOGLE_TOKEN_B64 está correctamente configurado en las variables de entorno."
-            )
-        with open(TOKEN_PATH, "w") as token:
-            token.write(creds.to_json())
+    creds_data = json.loads(base64.b64decode(creds_b64))
+    client_info = creds_data.get("web") or creds_data.get("installed", {})
+    client_id = client_info["client_id"]
+    client_secret = client_info["client_secret"]
+    token_uri = client_info.get("token_uri", "https://oauth2.googleapis.com/token")
 
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri=token_uri,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES,
+    )
+    creds.refresh(Request())
     return creds
 
 

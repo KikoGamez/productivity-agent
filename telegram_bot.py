@@ -18,8 +18,7 @@ conversations: dict = {}
 
 async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
-    token_b64 = os.environ.get("GOOGLE_TOKEN_B64", "")
-    token_json = os.environ.get("GOOGLE_TOKEN_JSON", "")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     notion_token = os.environ.get("NOTION_TOKEN", "")
     telegram_token = os.environ.get("TELEGRAM_TOKEN", "")
@@ -30,8 +29,7 @@ async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"NOTION_TOKEN: {'✅' if notion_token else '❌'} ({len(notion_token)} chars)\n"
         f"TELEGRAM_TOKEN: {'✅' if telegram_token else '❌'} ({len(telegram_token)} chars)\n"
         f"GOOGLE_CREDENTIALS_B64: {'✅' if creds_b64 else '❌'} ({len(creds_b64)} chars)\n"
-        f"GOOGLE_TOKEN_B64: {'✅' if token_b64 else '❌'} ({len(token_b64)} chars)\n"
-        f"GOOGLE_TOKEN_JSON: {'✅' if token_json else '❌'} ({len(token_json)} chars)\n"
+        f"GOOGLE_REFRESH_TOKEN: {'✅' if refresh_token else '❌'} ({len(refresh_token)} chars)\n"
     )
 
     # Try Google auth
