@@ -19,13 +19,18 @@ def _setup_files_from_env():
     creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_B64")
     token_b64 = os.environ.get("GOOGLE_TOKEN_B64")
 
-    if creds_b64 and not os.path.exists(CREDENTIALS_PATH):
+    print(f"[Google Auth] GOOGLE_CREDENTIALS_B64 present: {bool(creds_b64)}, length: {len(creds_b64) if creds_b64 else 0}")
+    print(f"[Google Auth] GOOGLE_TOKEN_B64 present: {bool(token_b64)}, length: {len(token_b64) if token_b64 else 0}")
+
+    if creds_b64:
         with open(CREDENTIALS_PATH, "wb") as f:
             f.write(base64.b64decode(creds_b64))
+        print(f"[Google Auth] credentials.json written")
 
-    if token_b64 and not os.path.exists(TOKEN_PATH):
+    if token_b64:
         with open(TOKEN_PATH, "wb") as f:
             f.write(base64.b64decode(token_b64))
+        print(f"[Google Auth] token.json written")
 
 
 def get_credentials() -> Credentials:
