@@ -16,6 +16,33 @@ client = anthropic.Anthropic()
 conversations: dict = {}
 
 
+async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
+    token_b64 = os.environ.get("GOOGLE_TOKEN_B64", "")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    notion_token = os.environ.get("NOTION_TOKEN", "")
+    telegram_token = os.environ.get("TELEGRAM_TOKEN", "")
+
+    msg = (
+        f"🔍 Debug:\n"
+        f"ANTHROPIC_API_KEY: {'✅' if anthropic_key else '❌'} ({len(anthropic_key)} chars)\n"
+        f"NOTION_TOKEN: {'✅' if notion_token else '❌'} ({len(notion_token)} chars)\n"
+        f"TELEGRAM_TOKEN: {'✅' if telegram_token else '❌'} ({len(telegram_token)} chars)\n"
+        f"GOOGLE_CREDENTIALS_B64: {'✅' if creds_b64 else '❌'} ({len(creds_b64)} chars)\n"
+        f"GOOGLE_TOKEN_B64: {'✅' if token_b64 else '❌'} ({len(token_b64)} chars)\n"
+    )
+
+    # Try Google auth
+    try:
+        from tools.google_auth import get_google_service
+        get_google_service("calendar", "v3")
+        msg += "Google Calendar: ✅\n"
+    except Exception as e:
+        msg += f"Google Calendar: ❌ {e}\n"
+
+    await update.message.reply_text(msg)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hola, soy tu agente de productividad personal.\n\n"
@@ -99,6 +126,7 @@ def main():
         return
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("debug", debug))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
