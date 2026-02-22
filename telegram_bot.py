@@ -130,6 +130,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Debug: mostrar qué variables de entorno GOOGLE están disponibles
+    google_vars = [k for k in os.environ if k.startswith("GOOGLE")]
+    print(f"🔑 Variables GOOGLE detectadas: {google_vars}")
     print("🤖 Bot de Telegram iniciado. Escribe /start en Telegram.")
     app.run_polling()
 
