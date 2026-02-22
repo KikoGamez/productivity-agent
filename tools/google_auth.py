@@ -45,8 +45,10 @@ def get_credentials() -> Credentials:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
+            raise RuntimeError(
+                "Google auth: no hay token válido y no se puede abrir el navegador en el servidor. "
+                "Asegúrate de que GOOGLE_TOKEN_B64 está correctamente configurado en las variables de entorno."
+            )
         with open(TOKEN_PATH, "w") as token:
             token.write(creds.to_json())
 
