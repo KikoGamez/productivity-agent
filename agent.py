@@ -13,6 +13,7 @@ from tools.notion_tools import (
 )
 from tools.calendar_tools import get_calendar_events, block_calendar_time
 from tools.gmail_tools import read_emails, get_email_body
+from tools.memory_tools import get_memory, update_memory
 
 client = anthropic.Anthropic()
 
@@ -195,6 +196,39 @@ TOOLS = [
         },
     },
     {
+        "name": "get_memory",
+        "description": (
+            "Lee la memoria de largo plazo del agente: contexto sobre el usuario, "
+            "proyectos activos, contactos clave y compromisos importantes. "
+            "Úsalo cuando necesites recordar información de conversaciones anteriores."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "update_memory",
+        "description": (
+            "Actualiza la memoria de largo plazo con información relevante nueva. "
+            "Úsalo cuando el usuario comparta información importante sobre proyectos, "
+            "contactos, compromisos o contexto personal que deba recordarse. "
+            "Escribe el contenido COMPLETO de la memoria, no solo lo nuevo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Contenido completo de la memoria en formato markdown. "
+                        "Usa secciones con ## para organizar: "
+                        "## Contexto Personal, ## Proyectos Activos, "
+                        "## Contactos Clave, ## Compromisos Pendientes, ## Notas"
+                    ),
+                }
+            },
+            "required": ["content"],
+        },
+    },
+    {
         "name": "generate_agenda_data",
         "description": (
             "Recopila todos los datos para generar la agenda del día: tareas pendientes, "
@@ -283,6 +317,13 @@ def execute_tool(name: str, tool_input: dict) -> str:
         elif name == "get_email_body":
             return get_email_body(tool_input["email_id"])
 
+        elif name == "get_memory":
+            memory = get_memory()
+            return memory if memory else "La memoria está vacía todavía."
+
+        elif name == "update_memory":
+            return update_memory(tool_input["content"])
+
         elif name == "log_time":
             return log_time(
                 branch=tool_input["branch"],
@@ -332,7 +373,10 @@ def _build_system_prompt() -> str:
     branches_text = "\n".join(
         f"  {b.emoji} {b.name}: {b.weekly_hours}h/semana" for b in BRANCHES
     )
+    memory = get_memory()
+    memory_section = f"\nMEMORIA (contexto de conversaciones anteriores):\n{memory}\n" if memory else ""
     return f"""Eres un asistente de productividad personal autónomo. Hoy es {today}.
+{memory_section}
 
 RAMAS DE TRABAJO Y OBJETIVOS SEMANALES:
 {branches_text}
