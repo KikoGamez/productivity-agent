@@ -30,10 +30,13 @@ def _extract_plain_text(payload: dict) -> str:
 
 
 def read_emails(max_emails: int = 10, unread_only: bool = True) -> list:
-    """Return a list of emails from Gmail inbox."""
+    """Return a list of emails from Gmail primary inbox (no newsletters or commercial emails)."""
     service = get_google_service("gmail", "v1")
 
-    query = "is:unread" if unread_only else ""
+    # category:primary = pestaña Principal de Gmail (excluye promociones, social, actualizaciones)
+    query = "in:inbox category:primary"
+    if unread_only:
+        query += " is:unread"
     result = (
         service.users()
         .messages()
@@ -62,7 +65,7 @@ def read_emails(max_emails: int = 10, unread_only: bool = True) -> list:
                 "from": headers.get("From", ""),
                 "subject": headers.get("Subject", "(Sin asunto)"),
                 "date": headers.get("Date", ""),
-                "snippet": message.get("snippet", ""),
+                "snippet": message.get("snippet", "")[:150],
             }
         )
     return emails
