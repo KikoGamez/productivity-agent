@@ -72,15 +72,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         while True:
-            response = await asyncio.to_thread(
-                client.messages.create,
-                model="claude-opus-4-6",
-                max_tokens=4096,
-                system=system_prompt,
-                tools=TOOLS,
-                messages=messages,
-                thinking={"type": "adaptive"},
-            )
+            for attempt in range(3):
+                try:
+                    response = await asyncio.to_thread(
+                        client.messages.create,
+                        model="claude-sonnet-4-6",
+                        max_tokens=2048,
+                        system=system_prompt,
+                        tools=TOOLS,
+                        messages=messages,
+                    )
+                    break
+                except anthropic.RateLimitError:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(30)
+                    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
             if response.stop_reason == "end_turn":
                 messages.append({"role": "assistant", "content": response.content})
