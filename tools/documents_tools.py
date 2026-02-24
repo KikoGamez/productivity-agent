@@ -1,20 +1,46 @@
 import os
+import re
 from datetime import datetime
 from notion_client import Client
 
 notion = Client(auth=os.environ.get("NOTION_TOKEN", ""))
 DOCS_DB_ID = os.environ.get("NOTION_DOCS_DB_ID", "")
 
+_STOP_WORDS = {
+    "a", "al", "algo", "ante", "antes", "como", "con", "cual", "cuando", "de",
+    "del", "desde", "donde", "durante", "el", "ella", "ellas", "ellos", "en",
+    "entre", "era", "es", "esta", "este", "esto", "estos", "estas", "fue",
+    "han", "has", "hay", "he", "la", "las", "le", "les", "lo", "los",
+    "me", "mi", "mis", "muy", "no", "nos", "o", "para", "pero", "por", "que",
+    "se", "si", "sin", "sobre", "su", "sus", "también", "te", "ti",
+    "toda", "todo", "todos", "tu", "tus", "un", "una", "uno", "unos", "unas",
+    "y", "ya", "yo",
+}
+
+
+def _auto_tags(content: str, max_tags: int = 20) -> list:
+    """Extract top keywords from content to use as searchable tags."""
+    words = re.findall(r'\b[a-záéíóúüñA-ZÁÉÍÓÚÜÑ]{4,}\b', content)
+    freq: dict = {}
+    for w in words:
+        w_low = w.lower()
+        if w_low not in _STOP_WORDS:
+            freq[w_low] = freq.get(w_low, 0) + 1
+    sorted_words = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    return [w for w, _ in sorted_words[:max_tags]]
+
 
 def save_document(title: str, content: str, tags: list = None, source: str = "Manual") -> str:
     """Save a document to the Notion documents database."""
+    # Auto-generate tags from content if none provided
+    final_tags = tags if tags else _auto_tags(content)
+
     properties = {
         "Título": {"title": [{"text": {"content": title}}]},
         "Fuente": {"select": {"name": source}},
         "Fecha": {"date": {"start": datetime.now().strftime("%Y-%m-%d")}},
+        "Etiquetas": {"multi_select": [{"name": t} for t in final_tags]},
     }
-    if tags:
-        properties["Etiquetas"] = {"multi_select": [{"name": t} for t in tags]}
 
     # Split content into 2000-char blocks (Notion limit per rich_text block)
     chunks = [content[i:i+2000] for i in range(0, len(content), 2000)]
@@ -39,7 +65,13 @@ def search_documents(query: str = "", tags: list = None) -> list:
     """Search documents by title or tags."""
     filters = []
     if query:
-        filters.append({"property": "Título", "title": {"contains": query}})
+        # Search in title OR in auto-generated tags
+        filters.append({
+            "or": [
+                {"property": "Título", "title": {"contains": query}},
+                {"property": "Etiquetas", "multi_select": {"contains": query}},
+            ]
+        })
     if tags:
         for tag in tags:
             filters.append({"property": "Etiquetas", "multi_select": {"contains": tag}})
