@@ -43,6 +43,7 @@ def get_calendar_events(date: str = None) -> list:
         end = event["end"].get("dateTime", event["end"].get("date", ""))
         events.append(
             {
+                "id": event["id"],
                 "title": event.get("summary", "Sin título"),
                 "start": start,
                 "end": end,
@@ -50,6 +51,13 @@ def get_calendar_events(date: str = None) -> list:
             }
         )
     return events
+
+
+def delete_calendar_event(event_id: str) -> str:
+    """Delete a Google Calendar event by its ID."""
+    service = get_google_service("calendar", "v3")
+    service.events().delete(calendarId="primary", eventId=event_id).execute()
+    return f"✅ Evento eliminado del calendario."
 
 
 def block_calendar_time(

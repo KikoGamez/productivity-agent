@@ -11,7 +11,7 @@ from tools.notion_tools import (
     get_weekly_hours_by_branch,
     log_time,
 )
-from tools.calendar_tools import get_calendar_events, block_calendar_time
+from tools.calendar_tools import get_calendar_events, block_calendar_time, delete_calendar_event
 from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
 
@@ -196,6 +196,23 @@ TOOLS = [
         },
     },
     {
+        "name": "delete_calendar_event",
+        "description": (
+            "Elimina un evento de Google Calendar por su ID. "
+            "Usa primero get_calendar_events para obtener el ID del evento a borrar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string",
+                    "description": "ID del evento obtenido con get_calendar_events",
+                }
+            },
+            "required": ["event_id"],
+        },
+    },
+    {
         "name": "get_memory",
         "description": (
             "Lee la memoria de largo plazo del agente: contexto sobre el usuario, "
@@ -316,6 +333,9 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
         elif name == "get_email_body":
             return get_email_body(tool_input["email_id"])
+
+        elif name == "delete_calendar_event":
+            return delete_calendar_event(tool_input["event_id"])
 
         elif name == "get_memory":
             memory = get_memory()
