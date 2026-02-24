@@ -1,7 +1,9 @@
+import io
 import os
 import asyncio
 import anthropic
 from groq import Groq
+from pypdf import PdfReader
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from dotenv import load_dotenv
@@ -137,6 +139,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _process_message(update, context, update.message.text)
 
 
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    mime = doc.mime_type or ""
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_document")
+
+    try:
+        file = await context.bot.get_file(doc.file_id)
+        file_bytes = await file.download_as_bytearray()
+        title = doc.file_name or "Documento sin nombre"
+
+        if mime == "application/pdf":
+            reader = PdfReader(io.BytesIO(bytes(file_bytes)))
+            pages_text = [page.extract_text() or "" for page in reader.pages]
+            content = "\n".join(pages_text).strip()
+            if not content:
+                await update.message.reply_text("⚠️ No pude extraer texto de este PDF (puede ser una imagen escaneada).")
+                return
+        elif mime.startswith("text/"):
+            content = bytes(file_bytes).decode("utf-8", errors="replace")
+        else:
+            await update.message.reply_text(f"⚠️ Formato no soportado ({mime}). Envíame un PDF o archivo de texto.")
+            return
+
+        from tools.documents_tools import save_document
+        result = await asyncio.to_thread(
+            save_document,
+            title=title.rsplit(".", 1)[0],  # Remove extension from title
+            content=content,
+            source="Manual",
+        )
+        await update.message.reply_text(f"📄 {result}\n\nPuedes pedirme que lo busque o lo resuma cuando quieras.")
+
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ Error procesando el archivo: {exc}")
+
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
@@ -181,6 +220,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
     google_vars = [k for k in os.environ if k.startswith("GOOGLE")]
     print(f"🔑 Variables GOOGLE detectadas: {google_vars}")
