@@ -83,8 +83,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         messages=messages,
                     )
                     break
-                except anthropic.RateLimitError:
-                    if attempt == 2:
+                except (anthropic.RateLimitError, anthropic.APIStatusError) as e:
+                    is_overloaded = isinstance(e, anthropic.APIStatusError) and e.status_code == 529
+                    if attempt == 2 or not (isinstance(e, anthropic.RateLimitError) or is_overloaded):
                         raise
                     await asyncio.sleep(30)
                     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
