@@ -26,7 +26,7 @@ def _extract_keywords(text: str) -> list[str]:
     return [w.lower() for w in words if w.lower() not in STOP_WORDS]
 
 
-def get_relevant_context(user_message: str, max_docs: int = 2, max_chars_per_doc: int = 800) -> str:
+def get_relevant_context(user_message: str, max_docs: int = 2, max_chars_per_doc: int = 3000) -> str:
     """
     Search for documents relevant to the user's message and return
     a formatted context string to inject into the system prompt.
