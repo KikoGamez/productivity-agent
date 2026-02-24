@@ -1,6 +1,7 @@
 import os
 import asyncio
 import anthropic
+from groq import Groq
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 client = anthropic.Anthropic()
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
 # Conversation history per chat_id
 conversations: dict = {}
@@ -22,6 +24,7 @@ async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     notion_token = os.environ.get("NOTION_TOKEN", "")
     telegram_token = os.environ.get("TELEGRAM_TOKEN", "")
+    groq_key = os.environ.get("GROQ_API_KEY", "")
 
     msg = (
         f"🔍 Debug:\n"
@@ -30,9 +33,9 @@ async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"TELEGRAM_TOKEN: {'✅' if telegram_token else '❌'} ({len(telegram_token)} chars)\n"
         f"GOOGLE_CREDENTIALS_B64: {'✅' if creds_b64 else '❌'} ({len(creds_b64)} chars)\n"
         f"GOOGLE_REFRESH_TOKEN: {'✅' if refresh_token else '❌'} ({len(refresh_token)} chars)\n"
+        f"GROQ_API_KEY: {'✅' if groq_key else '❌'} ({len(groq_key)} chars)\n"
     )
 
-    # Try Google auth
     try:
         from tools.google_auth import get_google_service
         get_google_service("calendar", "v3")
@@ -51,20 +54,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 📅 Ver y bloquear tiempo en Google Calendar\n"
         "• 📧 Leer y analizar tus correos\n"
         "• 📝 Guardar notas de reuniones\n"
-        "• 🗓️ Generar tu agenda del día\n\n"
+        "• 🗓️ Generar tu agenda del día\n"
+        "• 🎤 Mandarme audios de voz\n\n"
         "¿En qué te ayudo?"
     )
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
+    """Core agentic loop — processes any text message (typed or transcribed)."""
     chat_id = update.effective_chat.id
-    user_message = update.message.text
 
     if chat_id not in conversations:
         conversations[chat_id] = []
 
     conversations[chat_id].append({"role": "user", "content": user_message})
-
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     system_prompt = _build_system_prompt()
@@ -94,7 +97,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 messages.append({"role": "assistant", "content": response.content})
                 for block in response.content:
                     if block.type == "text" and block.text.strip():
-                        # Telegram tiene límite de 4096 caracteres por mensaje
                         text = block.text
                         while text:
                             await update.message.reply_text(text[:4096])
@@ -128,6 +130,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Error: {exc}")
 
 
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _process_message(update, context, update.message.text)
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key:
+        await update.message.reply_text("⚠️ GROQ_API_KEY no configurada. No puedo transcribir audios.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        # Download voice file
+        voice_file = await context.bot.get_file(update.message.voice.file_id)
+        audio_bytes = await voice_file.download_as_bytearray()
+
+        # Transcribe with Groq Whisper
+        transcription = await asyncio.to_thread(
+            groq_client.audio.transcriptions.create,
+            file=("audio.ogg", bytes(audio_bytes)),
+            model="whisper-large-v3",
+            language="es",
+        )
+        text = transcription.text.strip()
+
+        if not text:
+            await update.message.reply_text("⚠️ No pude entender el audio.")
+            return
+
+        # Show transcription and process
+        await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
+        await _process_message(update, context, text)
+
+    except Exception as exc:
+        await update.message.reply_text(f"⚠️ Error transcribiendo audio: {exc}")
+
+
 def main():
     if not TELEGRAM_TOKEN:
         print("❌ TELEGRAM_TOKEN no está en .env")
@@ -137,8 +177,8 @@ def main():
     app.add_handler(CommandHandler("debug", debug))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-    # Debug: mostrar qué variables de entorno GOOGLE están disponibles
     google_vars = [k for k in os.environ if k.startswith("GOOGLE")]
     print(f"🔑 Variables GOOGLE detectadas: {google_vars}")
     print("🤖 Bot de Telegram iniciado. Escribe /start en Telegram.")

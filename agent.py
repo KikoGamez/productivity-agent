@@ -15,6 +15,7 @@ from tools.calendar_tools import get_calendar_events, block_calendar_time, delet
 from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
+from tools.documents_tools import save_document, search_documents, get_document_content
 
 client = anthropic.Anthropic()
 
@@ -194,6 +195,59 @@ TOOLS = [
                 },
             },
             "required": ["branch", "hours"],
+        },
+    },
+    {
+        "name": "save_document",
+        "description": (
+            "Guarda un documento, resumen o nota larga en la base de datos de Notion. "
+            "Úsalo para guardar información extensa sobre proyectos, investigaciones, "
+            "transcripciones de audio, resúmenes de emails o cualquier contexto importante."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Título del documento"},
+                "content": {"type": "string", "description": "Contenido completo del documento"},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Etiquetas para categorizar (ej: ['inversores', 'AION', 'strategy'])",
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["Manual", "Email", "Reunión", "Audio", "Investigación"],
+                    "description": "Origen del documento",
+                },
+            },
+            "required": ["title", "content"],
+        },
+    },
+    {
+        "name": "search_documents",
+        "description": "Busca documentos guardados por título o etiquetas.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Texto a buscar en el título"},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filtrar por etiquetas",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_document_content",
+        "description": "Obtiene el contenido completo de un documento por su ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "doc_id": {"type": "string", "description": "ID del documento obtenido con search_documents"},
+            },
+            "required": ["doc_id"],
         },
     },
     {
@@ -404,6 +458,24 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
         elif name == "get_email_body":
             return get_email_body(tool_input["email_id"])
+
+        elif name == "save_document":
+            return save_document(
+                title=tool_input["title"],
+                content=tool_input["content"],
+                tags=tool_input.get("tags", []),
+                source=tool_input.get("source", "Manual"),
+            )
+
+        elif name == "search_documents":
+            docs = search_documents(
+                query=tool_input.get("query", ""),
+                tags=tool_input.get("tags"),
+            )
+            return json.dumps(docs, ensure_ascii=False, indent=2) if docs else "No se encontraron documentos."
+
+        elif name == "get_document_content":
+            return get_document_content(tool_input["doc_id"])
 
         elif name == "add_contact":
             return add_contact(
