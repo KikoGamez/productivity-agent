@@ -143,6 +143,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     mime = doc.mime_type or ""
 
+    # Telegram bots can only download files up to 20MB
+    if doc.file_size and doc.file_size > 20 * 1024 * 1024:
+        await update.message.reply_text(
+            "⚠️ El archivo es demasiado grande (máx. 20MB). "
+            "Prueba a dividir el PDF en partes más pequeñas."
+        )
+        return
+
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_document")
 
     try:
