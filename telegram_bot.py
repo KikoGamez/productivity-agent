@@ -7,6 +7,7 @@ from telegram.ext import Application, MessageHandler, CommandHandler, filters, C
 from dotenv import load_dotenv
 
 from agent import TOOLS, execute_tool, _build_system_prompt
+from tools.rag import get_relevant_context
 
 load_dotenv()
 
@@ -70,7 +71,9 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     conversations[chat_id].append({"role": "user", "content": user_message})
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    system_prompt = _build_system_prompt()
+    # RAG: auto-inject relevant documents into the system prompt
+    rag_context = await asyncio.to_thread(get_relevant_context, user_message)
+    system_prompt = _build_system_prompt(extra_context=rag_context)
     messages = conversations[chat_id]
 
     try:

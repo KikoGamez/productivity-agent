@@ -559,15 +559,16 @@ def execute_tool(name: str, tool_input: dict) -> str:
 # ─────────────────────────────────────────────
 
 
-def _build_system_prompt() -> str:
+def _build_system_prompt(extra_context: str = "") -> str:
     today = datetime.now().strftime("%A, %d de %B de %Y")
     branches_text = "\n".join(
         f"  {b.emoji} {b.name}: {b.weekly_hours}h/semana" for b in BRANCHES
     )
     memory = get_memory()
     memory_section = f"\nMEMORIA (contexto de conversaciones anteriores):\n{memory}\n" if memory else ""
+    rag_section = f"\n{extra_context}\n" if extra_context else ""
     return f"""Eres un asistente de productividad personal autónomo. Hoy es {today}.
-{memory_section}
+{memory_section}{rag_section}
 
 RAMAS DE TRABAJO Y OBJETIVOS SEMANALES:
 {branches_text}
