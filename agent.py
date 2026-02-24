@@ -14,6 +14,7 @@ from tools.notion_tools import (
 from tools.calendar_tools import get_calendar_events, block_calendar_time, delete_calendar_event
 from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
+from tools.contacts_tools import add_contact, get_contacts, update_contact
 
 client = anthropic.Anthropic()
 
@@ -196,6 +197,76 @@ TOOLS = [
         },
     },
     {
+        "name": "add_contact",
+        "description": "Añade un contacto de LinkedIn al registro de networking en Notion.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona": {"type": "string", "description": "Nombre completo del contacto"},
+                "empresa": {"type": "string", "description": "Empresa donde trabaja"},
+                "tipo_contacto": {
+                    "type": "string",
+                    "enum": ["Conexión", "Mensaje", "Comentario", "Reunión", "Café virtual", "Seguimiento"],
+                    "description": "Tipo de contacto realizado",
+                },
+                "ultimo_contacto": {"type": "string", "description": "Fecha del último contacto YYYY-MM-DD (por defecto hoy)"},
+                "proximo_contacto": {"type": "string", "description": "Qué hacer en el próximo contacto"},
+                "fecha_proximo_contacto": {"type": "string", "description": "Cuándo hacer el próximo contacto YYYY-MM-DD"},
+            },
+            "required": ["persona"],
+        },
+    },
+    {
+        "name": "get_contacts",
+        "description": (
+            "Obtiene contactos de LinkedIn del registro de networking. "
+            "Úsalo para ver quién necesita seguimiento o listar contactos activos."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "estado": {
+                    "type": "string",
+                    "enum": ["Activo", "Frío", "Convertido"],
+                    "description": "Filtrar por estado (opcional)",
+                },
+                "dias_sin_contacto": {
+                    "type": "integer",
+                    "description": "Devuelve contactos sin actividad en los últimos N días (opcional)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "update_contact",
+        "description": (
+            "Actualiza un contacto de LinkedIn: registra un nuevo contacto, "
+            "cambia el próximo seguimiento o su estado. "
+            "Usa get_contacts primero para obtener el ID del contacto."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_id": {"type": "string", "description": "ID del contacto obtenido con get_contacts"},
+                "tipo_contacto": {
+                    "type": "string",
+                    "enum": ["Conexión", "Mensaje", "Comentario", "Reunión", "Café virtual", "Seguimiento"],
+                    "description": "Tipo del contacto realizado",
+                },
+                "ultimo_contacto": {"type": "string", "description": "Fecha del contacto YYYY-MM-DD (por defecto hoy)"},
+                "proximo_contacto": {"type": "string", "description": "Qué hacer en el próximo contacto"},
+                "fecha_proximo_contacto": {"type": "string", "description": "Cuándo hacer el próximo contacto YYYY-MM-DD"},
+                "estado": {
+                    "type": "string",
+                    "enum": ["Activo", "Frío", "Convertido"],
+                    "description": "Nuevo estado del contacto",
+                },
+            },
+            "required": ["contact_id"],
+        },
+    },
+    {
         "name": "delete_calendar_event",
         "description": (
             "Elimina un evento de Google Calendar por su ID. "
@@ -333,6 +404,34 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
         elif name == "get_email_body":
             return get_email_body(tool_input["email_id"])
+
+        elif name == "add_contact":
+            return add_contact(
+                persona=tool_input["persona"],
+                empresa=tool_input.get("empresa", ""),
+                tipo_contacto=tool_input.get("tipo_contacto", "Conexión"),
+                ultimo_contacto=tool_input.get("ultimo_contacto"),
+                proximo_contacto=tool_input.get("proximo_contacto", ""),
+                fecha_proximo_contacto=tool_input.get("fecha_proximo_contacto"),
+            )
+
+        elif name == "get_contacts":
+            import json
+            contacts = get_contacts(
+                estado=tool_input.get("estado"),
+                dias_sin_contacto=tool_input.get("dias_sin_contacto"),
+            )
+            return json.dumps(contacts, ensure_ascii=False, indent=2) if contacts else "No hay contactos con esos filtros."
+
+        elif name == "update_contact":
+            return update_contact(
+                contact_id=tool_input["contact_id"],
+                tipo_contacto=tool_input.get("tipo_contacto"),
+                ultimo_contacto=tool_input.get("ultimo_contacto"),
+                proximo_contacto=tool_input.get("proximo_contacto"),
+                fecha_proximo_contacto=tool_input.get("fecha_proximo_contacto"),
+                estado=tool_input.get("estado"),
+            )
 
         elif name == "delete_calendar_event":
             return delete_calendar_event(tool_input["event_id"])
