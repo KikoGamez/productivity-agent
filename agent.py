@@ -488,7 +488,6 @@ def execute_tool(name: str, tool_input: dict) -> str:
             )
 
         elif name == "get_contacts":
-            import json
             contacts = get_contacts(
                 estado=tool_input.get("estado"),
                 dias_sin_contacto=tool_input.get("dias_sin_contacto"),
