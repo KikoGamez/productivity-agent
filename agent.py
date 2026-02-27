@@ -16,6 +16,7 @@ from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
 from tools.documents_tools import save_document, search_documents, get_document_content
+from tools.sheets_tools import get_weekly_articles
 
 client = anthropic.Anthropic()
 
@@ -251,6 +252,20 @@ TOOLS = [
         },
     },
     {
+        "name": "get_weekly_articles",
+        "description": "Lee los artículos recomendados de la semana desde Google Sheets.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Nombre de la pestaña de la hoja. Por defecto 'Sheet1'.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "add_contact",
         "description": "Añade un contacto de LinkedIn al registro de networking en Notion.",
         "input_schema": {
@@ -476,6 +491,12 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
         elif name == "get_document_content":
             return get_document_content(tool_input["doc_id"])
+
+        elif name == "get_weekly_articles":
+            articles = get_weekly_articles(
+                sheet_name=tool_input.get("sheet_name", "Sheet1"),
+            )
+            return json.dumps(articles, ensure_ascii=False, indent=2) if articles else "No se encontraron artículos."
 
         elif name == "add_contact":
             return add_contact(
