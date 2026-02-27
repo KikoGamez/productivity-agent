@@ -59,6 +59,77 @@ def get_editorial_articles(only_pending: bool = True) -> list:
     return articles
 
 
+def get_editorial_style(platform: str = None) -> list:
+    """Read editorial style rules from the Estilo sheet.
+    Optionally filter by platform (e.g. 'Economía Digital', 'LinkedIn').
+    """
+    service = get_google_service("sheets", "v4")
+
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=SHEETS_ID, range="Estilo!A:B")
+        .execute()
+    )
+
+    rows = result.get("values", [])
+    if not rows:
+        return []
+
+    rules = []
+    for row in rows[1:]:
+        if len(row) < 2:
+            continue
+        regla = row[0].strip()
+        descripcion = row[1].strip() if len(row) > 1 else ""
+        if not descripcion:
+            continue
+        if platform and regla.lower() not in ("todo", "ambos", "", platform.lower()):
+            continue
+        rules.append({"regla": regla, "descripcion": descripcion})
+
+    return rules
+
+
+def get_editorial_references(platform: str = None) -> list:
+    """Read reference media from the Referencias sheet.
+    Optionally filter by platform (e.g. 'Economía Digital', 'LinkedIn').
+    """
+    service = get_google_service("sheets", "v4")
+
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=SHEETS_ID, range="Referencias!A:D")
+        .execute()
+    )
+
+    rows = result.get("values", [])
+    if not rows:
+        return []
+
+    references = []
+    for row in rows[1:]:
+        if len(row) < 2:
+            continue
+        plataforma = row[0].strip()
+        nombre = row[1].strip() if len(row) > 1 else ""
+        url = row[2].strip() if len(row) > 2 else ""
+        notas = row[3].strip() if len(row) > 3 else ""
+        if not nombre:
+            continue
+        if platform and plataforma.lower() not in ("ambos", "todo", "", platform.lower()):
+            continue
+        references.append({
+            "plataforma": plataforma,
+            "nombre": nombre,
+            "url": url,
+            "notas_estilo": notas,
+        })
+
+    return references
+
+
 def mark_article(row: int, action: str) -> str:
     """Mark an article row with the user's decision.
     action: 'aprobar' | 'rechazar' | 'modificar'

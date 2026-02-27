@@ -16,7 +16,7 @@ from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
 from tools.documents_tools import save_document, search_documents, get_document_content
-from tools.sheets_tools import get_editorial_articles, mark_article
+from tools.sheets_tools import get_editorial_articles, mark_article, get_editorial_style, get_editorial_references
 
 client = anthropic.Anthropic()
 
@@ -260,6 +260,34 @@ TOOLS = [
                 "only_pending": {
                     "type": "boolean",
                     "description": "Si true (por defecto), devuelve solo los pendientes de revisar.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_editorial_style",
+        "description": "Lee las reglas de estilo editorial del Google Sheet (pestaña Estilo). Úsalo antes de generar o revisar cualquier artículo.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "description": "Filtra por plataforma: 'Economía Digital' o 'LinkedIn'. Si no se indica, devuelve todas.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_editorial_references",
+        "description": "Lee los medios de referencia del Google Sheet (pestaña Referencias) para inspirarse al generar artículos.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "description": "Filtra por plataforma: 'Economía Digital' o 'LinkedIn'. Si no se indica, devuelve todos.",
                 },
             },
             "required": [],
@@ -516,6 +544,14 @@ def execute_tool(name: str, tool_input: dict) -> str:
                 only_pending=tool_input.get("only_pending", True),
             )
             return json.dumps(articles, ensure_ascii=False, indent=2) if articles else "No hay artículos pendientes de revisar."
+
+        elif name == "get_editorial_style":
+            rules = get_editorial_style(platform=tool_input.get("platform"))
+            return json.dumps(rules, ensure_ascii=False, indent=2) if rules else "No hay reglas de estilo definidas."
+
+        elif name == "get_editorial_references":
+            refs = get_editorial_references(platform=tool_input.get("platform"))
+            return json.dumps(refs, ensure_ascii=False, indent=2) if refs else "No hay referencias definidas."
 
         elif name == "mark_article":
             return mark_article(
