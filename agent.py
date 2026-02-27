@@ -16,7 +16,7 @@ from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
 from tools.documents_tools import save_document, search_documents, get_document_content
-from tools.sheets_tools import get_weekly_articles
+from tools.sheets_tools import get_editorial_articles, mark_article
 
 client = anthropic.Anthropic()
 
@@ -252,17 +252,36 @@ TOOLS = [
         },
     },
     {
-        "name": "get_weekly_articles",
-        "description": "Lee los artículos recomendados de la semana desde Google Sheets.",
+        "name": "get_editorial_articles",
+        "description": "Lee las propuestas de contenido del Google Sheet Editorial. Devuelve los artículos pendientes de revisión (o todos si only_pending=false).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "sheet_name": {
-                    "type": "string",
-                    "description": "Nombre de la pestaña de la hoja. Por defecto 'Sheet1'.",
+                "only_pending": {
+                    "type": "boolean",
+                    "description": "Si true (por defecto), devuelve solo los pendientes de revisar.",
                 },
             },
             "required": [],
+        },
+    },
+    {
+        "name": "mark_article",
+        "description": "Marca una fila del Sheet Editorial como aprobada, rechazada o aprobada con modificaciones.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "row": {
+                    "type": "integer",
+                    "description": "Número de fila en el Sheet (obtenido de get_editorial_articles).",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["aprobar", "rechazar", "modificar"],
+                    "description": "'aprobar' = columna G verde, 'rechazar' = columna F rojo, 'modificar' = columna G lápiz.",
+                },
+            },
+            "required": ["row", "action"],
         },
     },
     {
@@ -492,11 +511,17 @@ def execute_tool(name: str, tool_input: dict) -> str:
         elif name == "get_document_content":
             return get_document_content(tool_input["doc_id"])
 
-        elif name == "get_weekly_articles":
-            articles = get_weekly_articles(
-                sheet_name=tool_input.get("sheet_name", "Sheet1"),
+        elif name == "get_editorial_articles":
+            articles = get_editorial_articles(
+                only_pending=tool_input.get("only_pending", True),
             )
-            return json.dumps(articles, ensure_ascii=False, indent=2) if articles else "No se encontraron artículos."
+            return json.dumps(articles, ensure_ascii=False, indent=2) if articles else "No hay artículos pendientes de revisar."
+
+        elif name == "mark_article":
+            return mark_article(
+                row=tool_input["row"],
+                action=tool_input["action"],
+            )
 
         elif name == "add_contact":
             return add_contact(
