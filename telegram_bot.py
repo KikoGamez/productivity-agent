@@ -223,6 +223,10 @@ def main():
         print("❌ TELEGRAM_TOKEN no está en .env")
         return
 
+    import time
+    print("⏳ Esperando 8s para que Telegram libere la conexión anterior...")
+    time.sleep(8)
+
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("debug", debug))
     app.add_handler(CommandHandler("start", start))
@@ -233,7 +237,7 @@ def main():
     google_vars = [k for k in os.environ if k.startswith("GOOGLE")]
     print(f"🔑 Variables GOOGLE detectadas: {google_vars}")
     print("🤖 Bot de Telegram iniciado. Escribe /start en Telegram.")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
