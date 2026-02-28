@@ -130,6 +130,15 @@ def get_editorial_references(platform: str = None) -> list:
     return references
 
 
+def _get_sheet_id(service) -> int:
+    """Get the numeric sheetId for SHEET_NAME."""
+    result = service.spreadsheets().get(spreadsheetId=SHEETS_ID).execute()
+    for sheet in result.get("sheets", []):
+        if sheet["properties"]["title"] == SHEET_NAME:
+            return sheet["properties"]["sheetId"]
+    raise ValueError(f"Pestaña '{SHEET_NAME}' no encontrada en el Sheet.")
+
+
 def mark_article(row: int, action: str) -> str:
     """Mark an article row with the user's decision.
     action: 'aprobar' | 'rechazar' | 'modificar'
@@ -137,35 +146,61 @@ def mark_article(row: int, action: str) -> str:
     service = get_google_service("sheets", "v4")
 
     if action == "aprobar":
-        # Check G (green), clear F
-        requests = [
-            {"range": f"{SHEET_NAME}!F{row}", "values": [[""]]},
-            {"range": f"{SHEET_NAME}!G{row}", "values": [["TRUE"]]},
-        ]
         label = "✅ Aprobado"
+        f_bool, g_bool = False, True
     elif action == "rechazar":
-        # Check F (red), clear G
-        requests = [
-            {"range": f"{SHEET_NAME}!F{row}", "values": [["TRUE"]]},
-            {"range": f"{SHEET_NAME}!G{row}", "values": [[""]]},
-        ]
         label = "❌ Rechazado"
+        f_bool, g_bool = True, False
     elif action == "modificar":
-        # Mark G with pencil emoji (approved with modifications), clear F
-        requests = [
-            {"range": f"{SHEET_NAME}!F{row}", "values": [[""]]},
-            {"range": f"{SHEET_NAME}!G{row}", "values": [["✏️"]]},
-        ]
         label = "✏️ Aprobado con modificaciones"
+        # For modify: uncheck F, write pencil emoji in G (not a checkbox value)
+        service.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEETS_ID,
+            body={
+                "valueInputOption": "USER_ENTERED",
+                "data": [
+                    {"range": f"{SHEET_NAME}!F{row}", "values": [[""]]},
+                    {"range": f"{SHEET_NAME}!G{row}", "values": [["✏️"]]},
+                ],
+            },
+        ).execute()
+        return f"{label} — fila {row} actualizada en Google Sheets."
     else:
         return f"Acción no reconocida: {action}. Usa 'aprobar', 'rechazar' o 'modificar'."
 
-    body = {
-        "valueInputOption": "RAW",
-        "data": requests,
-    }
-    service.spreadsheets().values().batchUpdate(
-        spreadsheetId=SHEETS_ID, body=body
+    # Use spreadsheets.batchUpdate with repeatCell to set real boolean values
+    # (the only API that properly ticks/unticks Google Sheets checkboxes)
+    sheet_id = _get_sheet_id(service)
+    row_idx = row - 1  # API is 0-indexed
+
+    cell_updates = [
+        (5, f_bool),  # column F = index 5
+        (6, g_bool),  # column G = index 6
+    ]
+    requests = [
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": row_idx,
+                    "endRowIndex": row_idx + 1,
+                    "startColumnIndex": col,
+                    "endColumnIndex": col + 1,
+                },
+                "cell": {
+                    "userEnteredValue": {"boolValue": bool_val},
+                    "dataValidation": {
+                        "condition": {"type": "BOOLEAN"}
+                    },
+                },
+                "fields": "userEnteredValue,dataValidation",
+            }
+        }
+        for col, bool_val in cell_updates
+    ]
+
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=SHEETS_ID, body={"requests": requests}
     ).execute()
 
     return f"{label} — fila {row} actualizada en Google Sheets."

@@ -236,6 +236,8 @@ def main():
 
     google_vars = [k for k in os.environ if k.startswith("GOOGLE")]
     print(f"🔑 Variables GOOGLE detectadas: {google_vars}")
+    perplexity_key = os.environ.get("PERPLEXITY_API_KEY", "")
+    print(f"🔍 PERPLEXITY_API_KEY: {'✅' if perplexity_key else '❌ NO CONFIGURADA'}")
     print("🤖 Bot de Telegram iniciado. Escribe /start en Telegram.")
     app.run_polling(drop_pending_updates=True)
 

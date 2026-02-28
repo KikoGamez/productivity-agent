@@ -17,6 +17,7 @@ from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
 from tools.documents_tools import save_document, search_documents, get_document_content
 from tools.sheets_tools import get_editorial_articles, mark_article, get_editorial_style, get_editorial_references
+from tools.search_tools import web_search
 
 client = anthropic.Anthropic()
 
@@ -433,6 +434,25 @@ TOOLS = [
         },
     },
     {
+        "name": "web_search",
+        "description": (
+            "Busca información actualizada en internet usando Perplexity. "
+            "Úsalo para noticias del día, precios, eventos recientes, investigación "
+            "o cualquier consulta que requiera datos en tiempo real. "
+            "Escribe la query en español o inglés según convenga."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Pregunta o búsqueda a realizar",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "generate_agenda_data",
         "description": (
             "Recopila todos los datos para generar la agenda del día: tareas pendientes, "
@@ -589,6 +609,9 @@ def execute_tool(name: str, tool_input: dict) -> str:
         elif name == "delete_calendar_event":
             return delete_calendar_event(tool_input["event_id"])
 
+        elif name == "web_search":
+            return web_search(tool_input["query"])
+
         elif name == "get_memory":
             memory = get_memory()
             return memory if memory else "La memoria está vacía todavía."
@@ -662,6 +685,12 @@ CAPACIDADES:
 • Ver y bloquear bloques de trabajo en Google Calendar
 • Registrar horas trabajadas por rama
 • Generar la agenda del día optimizada por déficit de horas
+• Buscar información en internet en tiempo real (noticias, precios, eventos, investigación) usando web_search
+
+ACCESO A INTERNET — MUY IMPORTANTE:
+Tienes acceso a internet en tiempo real mediante la herramienta web_search (Perplexity).
+NUNCA digas "no tengo acceso a internet" ni "no puedo ver noticias en tiempo real".
+Ante cualquier pregunta sobre noticias, precios, eventos recientes o información actual → llama SIEMPRE a web_search.
 
 COMPORTAMIENTO AUTÓNOMO:
 • Encadena herramientas sin pedir permiso para cada paso intermedio
