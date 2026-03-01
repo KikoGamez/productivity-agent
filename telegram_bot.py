@@ -45,7 +45,8 @@ Con todos los datos, genera el briefing con estas secciones:
 Eventos del día y bloques de trabajo recomendados priorizando las ramas con más déficit de horas.
 
 📰 TOP 3 NOTICIAS
-Las 3 noticias más importantes que combinen tech/IA/robótica/energía + empresa + economía. Una frase por noticia + fuente.
+Las 3 noticias más importantes que combinen tech/IA/robótica/energía + empresa + economía.
+Por cada noticia: titular, una frase de contexto, y el link directo al medio que haya cubierto la noticia con más datos y rigor (prioriza FT, Reuters, Bloomberg, MIT Tech Review, The Economist, Wired, El País Economía o similar según el tema).
 
 📧 EMAILS IMPORTANTES
 Newsletters relevantes o emails sin contestar que merezcan atención hoy.
@@ -428,10 +429,10 @@ def main():
     # Scheduled jobs
     if TELEGRAM_CHAT_ID:
         job_queue = app.job_queue
-        # Daily briefing at 8:00 AM Madrid time
+        # Daily briefing at 7:00 AM Madrid time
         job_queue.run_daily(
             daily_briefing_job,
-            time=datetime.time(8, 0, 0, tzinfo=MADRID_TZ),
+            time=datetime.time(7, 0, 0, tzinfo=MADRID_TZ),
         )
         # Weekly summary every Friday at 6:00 PM Madrid time
         job_queue.run_daily(
@@ -439,7 +440,7 @@ def main():
             time=datetime.time(18, 0, 0, tzinfo=MADRID_TZ),
             days=(4,),  # 0=Monday … 4=Friday
         )
-        print(f"⏰ Briefing diario: 08:00 Madrid | Resumen semanal: viernes 18:00 Madrid")
+        print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid")
     else:
         print("⚠️ TELEGRAM_CHAT_ID no configurado — mensajes automáticos desactivados. Usa /myid para obtenerlo.")
 
