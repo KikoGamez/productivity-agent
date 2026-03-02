@@ -87,14 +87,18 @@ El logro más destacable de la semana o una reflexión útil sobre el ritmo de t
 # Agent loop reutilizable para briefings
 # ─────────────────────────────────────────────
 
-async def _run_briefing(context: ContextTypes.DEFAULT_TYPE, prompt: str, header: str):
-    """Run the full agent loop for a scheduled briefing and send to TELEGRAM_CHAT_ID."""
-    if not TELEGRAM_CHAT_ID:
+async def _run_briefing(context: ContextTypes.DEFAULT_TYPE, prompt: str, header: str, chat_id: str = None):
+    """Run the full agent loop for a briefing and send the result.
+    chat_id: explicit target (manual commands pass update.effective_chat.id).
+             Falls back to TELEGRAM_CHAT_ID for scheduled jobs.
+    """
+    target = str(chat_id) if chat_id else TELEGRAM_CHAT_ID
+    if not target:
         print("⚠️ TELEGRAM_CHAT_ID no configurado — briefing automático desactivado.")
         return
 
-    await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=header)
-    await context.bot.send_chat_action(chat_id=TELEGRAM_CHAT_ID, action="typing")
+    await context.bot.send_message(chat_id=target, text=header)
+    await context.bot.send_chat_action(chat_id=target, action="typing")
 
     rag_context = await asyncio.to_thread(get_relevant_context, prompt)
     system_prompt = _build_system_prompt(extra_context=rag_context)
@@ -118,7 +122,7 @@ async def _run_briefing(context: ContextTypes.DEFAULT_TYPE, prompt: str, header:
                     if attempt == 2 or not (isinstance(e, anthropic.RateLimitError) or is_overloaded):
                         raise
                     await asyncio.sleep(30)
-                    await context.bot.send_chat_action(chat_id=TELEGRAM_CHAT_ID, action="typing")
+                    await context.bot.send_chat_action(chat_id=target, action="typing")
 
             if response.stop_reason == "end_turn":
                 messages.append({"role": "assistant", "content": response.content})
@@ -126,7 +130,7 @@ async def _run_briefing(context: ContextTypes.DEFAULT_TYPE, prompt: str, header:
                     if block.type == "text" and block.text.strip():
                         text = block.text
                         while text:
-                            await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text[:4096])
+                            await context.bot.send_message(chat_id=target, text=text[:4096])
                             text = text[4096:]
                 break
 
@@ -135,7 +139,7 @@ async def _run_briefing(context: ContextTypes.DEFAULT_TYPE, prompt: str, header:
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
-                        await context.bot.send_chat_action(chat_id=TELEGRAM_CHAT_ID, action="typing")
+                        await context.bot.send_chat_action(chat_id=target, action="typing")
                         result = await asyncio.to_thread(execute_tool, block.name, block.input)
                         tool_results.append({
                             "type": "tool_result",
@@ -148,11 +152,11 @@ async def _run_briefing(context: ContextTypes.DEFAULT_TYPE, prompt: str, header:
                 messages.append({"role": "assistant", "content": response.content})
                 for block in response.content:
                     if block.type == "text" and block.text.strip():
-                        await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=block.text[:4096])
+                        await context.bot.send_message(chat_id=target, text=block.text[:4096])
                 break
 
     except Exception as exc:
-        await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=f"⚠️ Error generando briefing: {exc}")
+        await context.bot.send_message(chat_id=target, text=f"⚠️ Error generando briefing: {exc}")
 
 
 # ─────────────────────────────────────────────
@@ -239,13 +243,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def manual_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🌅 Generando tu briefing diario, un momento...")
-    await _run_briefing(context, DAILY_BRIEFING_PROMPT, "🌅 Briefing diario:")
+    await _run_briefing(context, DAILY_BRIEFING_PROMPT, "🌅 Briefing diario:", chat_id=update.effective_chat.id)
 
 
 async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📊 Generando resumen semanal, un momento...")
-    await _run_briefing(context, WEEKLY_SUMMARY_PROMPT, "📊 Resumen semanal:")
+    await _run_briefing(context, WEEKLY_SUMMARY_PROMPT, "📊 Resumen semanal:", chat_id=update.effective_chat.id)
 
 
 async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
