@@ -49,7 +49,9 @@ Las 3 noticias más importantes que combinen tech/IA/robótica/energía + empres
 Por cada noticia: titular, una frase de contexto, y el link directo al medio que haya cubierto la noticia con más datos y rigor (prioriza FT, Reuters, Bloomberg, MIT Tech Review, The Economist, Wired, El País Economía o similar según el tema).
 
 📧 EMAILS IMPORTANTES
-Solo emails de personas reales que requieran respuesta o acción. Ignora completamente: newsletters, correos automáticos, notificaciones de plataformas (GitHub, Notion, Stripe, Google, LinkedIn, etc.), facturas automáticas, confirmaciones de pedidos, marketing y cualquier remitente que no sea una persona concreta. Si no hay emails relevantes de personas reales, escribe "Nada urgente."
+REGLA ESTRICTA: solo aparecen aquí emails donde el remitente es una persona humana concreta (nombre + apellido o empresa conocida del usuario) que espera respuesta directa.
+EXCLUIR SIN EXCEPCIONES aunque el contenido parezca urgente o accionable: notificaciones de GitHub, Google, LinkedIn, Notion, Stripe, Slack, cualquier plataforma o servicio, newsletters, alertas de seguridad automáticas, avisos de expiración de tokens/contraseñas, confirmaciones, facturas, marketing, y cualquier email enviado por un sistema automático o noreply.
+Si no hay emails de personas reales: escribe únicamente "Nada urgente."
 
 ⚠️ RECORDATORIOS
 - Ramas con déficit alto de horas esta semana
