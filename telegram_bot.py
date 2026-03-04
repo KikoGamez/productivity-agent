@@ -36,7 +36,7 @@ DAILY_BRIEFING_PROMPT = """Genera el briefing diario completo. Sé directo y est
 
 Pasos que debes seguir (usa las herramientas en este orden):
 1. Llama a generate_agenda_data para obtener agenda, tareas pendientes y déficit de horas
-2. Llama a web_search con la query: "most important news today AI robotics energy business economy startups" para obtener las 3 noticias más relevantes
+2. Llama a web_search con la query: "most important business economy news today Financial Times Wall Street Journal Expansion site:ft.com OR site:wsj.com OR site:expansion.com OR site:economist.com OR site:nytimes.com" para obtener las 3 noticias más relevantes de prensa económica
 3. Llama a read_emails (unread_only=true, max_emails=20) para revisar newsletters y emails importantes
 
 Con todos los datos, genera el briefing con estas secciones:
@@ -45,8 +45,8 @@ Con todos los datos, genera el briefing con estas secciones:
 Eventos del día y bloques de trabajo recomendados priorizando las ramas con más déficit de horas.
 
 📰 TOP 3 NOTICIAS
-Las 3 noticias más importantes que combinen tech/IA/robótica/energía + empresa + economía.
-Por cada noticia: titular, una frase de contexto, y el link directo al medio que haya cubierto la noticia con más datos y rigor (prioriza FT, Reuters, Bloomberg, MIT Tech Review, The Economist, Wired, El País Economía o similar según el tema).
+Las 3 noticias más importantes del día de prensa económica y de negocios. Criterio: noticias con impacto real en economía, empresas, mercados o política económica — no lanzamientos de modelos de IA ni productos tech puros salvo que tengan impacto económico relevante (ej: movimiento bursátil, regulación, fusión, política comercial).
+Por cada noticia: titular, una frase de contexto, y el link directo al medio que la haya cubierto mejor (FT, WSJ, The Economist, NYT Business, Bloomberg, Reuters, Expansión, El País Economía).
 
 📧 EMAILS IMPORTANTES
 REGLA ESTRICTA: solo aparecen aquí emails donde el remitente es una persona humana concreta (nombre + apellido o empresa conocida del usuario) que espera respuesta directa.
