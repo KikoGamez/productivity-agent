@@ -27,6 +27,7 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
 # Conversation history per chat_id
 conversations: dict = {}
+transcription_mode: set = {}  # chat_ids with transcription-only mode active
 
 # ─────────────────────────────────────────────
 # Prompts para briefings automáticos
@@ -324,6 +325,16 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         await update.message.reply_text(f"⚠️ Error: {exc}")
 
 
+async def toggle_transcription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id in transcription_mode:
+        transcription_mode.discard(chat_id)
+        await update.message.reply_text("🎤 Modo transcripción desactivado — los audios vuelven al agente.")
+    else:
+        transcription_mode.add(chat_id)
+        await update.message.reply_text("🎤 Modo transcripción activado — mándame un audio y te devuelvo solo el texto.")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _process_message(update, context, update.message.text)
 
@@ -382,11 +393,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        # Download voice file
         voice_file = await context.bot.get_file(update.message.voice.file_id)
         audio_bytes = await voice_file.download_as_bytearray()
 
-        # Transcribe with Groq Whisper
         transcription = await asyncio.to_thread(
             groq_client.audio.transcriptions.create,
             file=("audio.ogg", bytes(audio_bytes)),
@@ -399,7 +408,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ No pude entender el audio.")
             return
 
-        # Show transcription and process
+        # Transcription-only mode: return plain text, no agent
+        if update.effective_chat.id in transcription_mode:
+            await update.message.reply_text(text)
+            return
+
+        # Normal mode: show transcription and process with agent
         await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
         await _process_message(update, context, text)
 
@@ -424,6 +438,7 @@ def main():
     app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("briefing", manual_briefing))
     app.add_handler(CommandHandler("resumen", manual_weekly))
+    app.add_handler(CommandHandler("t", toggle_transcription))
 
     # Message handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
