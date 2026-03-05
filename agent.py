@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import anthropic
 from datetime import datetime
 
@@ -20,6 +21,28 @@ from tools.sheets_tools import get_editorial_articles, mark_article, get_editori
 from tools.search_tools import web_search
 
 client = anthropic.Anthropic()
+
+# ─────────────────────────────────────────────
+# Memory cache (avoid hitting Notion on every message)
+# ─────────────────────────────────────────────
+
+_memory_cache: str = ""
+_memory_cache_ts: float = 0.0
+_MEMORY_TTL = 300  # refresh every 5 minutes
+
+
+def get_memory_cached() -> str:
+    global _memory_cache, _memory_cache_ts
+    if time.time() - _memory_cache_ts > _MEMORY_TTL:
+        _memory_cache = get_memory()
+        _memory_cache_ts = time.time()
+    return _memory_cache
+
+
+def invalidate_memory_cache():
+    global _memory_cache_ts
+    _memory_cache_ts = 0.0
+
 
 # ─────────────────────────────────────────────
 # Tool schemas (JSON Schema for Claude)
@@ -618,11 +641,13 @@ def execute_tool(name: str, tool_input: dict) -> str:
             return web_search(tool_input["query"])
 
         elif name == "get_memory":
-            memory = get_memory()
+            memory = get_memory_cached()
             return memory if memory else "La memoria está vacía todavía."
 
         elif name == "update_memory":
-            return update_memory(tool_input["content"])
+            result = update_memory(tool_input["content"])
+            invalidate_memory_cache()
+            return result
 
         elif name == "log_time":
             return log_time(
@@ -673,7 +698,7 @@ def _build_system_prompt(extra_context: str = "") -> str:
     branches_text = "\n".join(
         f"  {b.emoji} {b.name}: {b.weekly_hours}h/semana" for b in BRANCHES
     )
-    memory = get_memory()
+    memory = get_memory_cached()
     memory_section = f"\nMEMORIA (contexto de conversaciones anteriores):\n{memory}\n" if memory else ""
     rag_section = f"\n{extra_context}\n" if extra_context else ""
     return f"""Eres un asistente de productividad personal autónomo. Hoy es {today}.

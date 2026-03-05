@@ -16,7 +16,8 @@ try:
 except Exception:
     MADRID_TZ = datetime.timezone(datetime.timedelta(hours=1))
 
-from agent import TOOLS, execute_tool, _build_system_prompt
+from agent import TOOLS, execute_tool, _build_system_prompt, get_memory_cached, invalidate_memory_cache
+from tools.memory_tools import update_memory
 from tools.rag import get_relevant_context
 
 load_dotenv()
@@ -274,6 +275,55 @@ async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _run_briefing(context, WEEKLY_SUMMARY_PROMPT, "📊 Resumen semanal:", chat_id=update.effective_chat.id)
 
 
+async def _consolidate_memory(chat_id: str):
+    """Background task: after each exchange, extract learnings and update memory via Haiku."""
+    messages = conversations.get(chat_id, [])
+    # Only text turns (skip tool_use/tool_result blocks)
+    text_turns = [
+        m for m in messages[-20:]
+        if isinstance(m.get("content"), str) and m["content"].strip()
+    ]
+    if len(text_turns) < 2:
+        return
+
+    conversation_text = "\n".join(
+        f"{'USUARIO' if m['role'] == 'user' else 'AGENTE'}: {m['content']}"
+        for m in text_turns
+    )
+    current_memory = get_memory_cached()
+
+    try:
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model="claude-haiku-4-5",
+            max_tokens=2000,
+            messages=[{
+                "role": "user",
+                "content": f"""Eres el sistema de memoria de un asistente personal. Analiza la conversación y actualiza la memoria del usuario.
+
+MEMORIA ACTUAL:
+{current_memory or "(vacía)"}
+
+CONVERSACIÓN RECIENTE:
+{conversation_text}
+
+Extrae TODO lo que sea útil para conocer mejor al usuario: trabajo, proyectos, decisiones, preferencias, hábitos, contactos mencionados, situación personal, frustraciones, objetivos, contexto de lo que está haciendo.
+Sé agresivo guardando información — mejor guardar de más que de menos.
+Integra lo nuevo con la memoria existente sin borrar nada relevante.
+Organiza en secciones: ## Trabajo y proyectos / ## Preferencias y hábitos / ## Contactos clave / ## Situación actual / ## Contexto y patrones.
+
+Si realmente no hay nada nuevo relevante que añadir, responde solo: NO_UPDATE
+Si hay algo (aunque sea pequeño), responde con la memoria completa actualizada.""",
+            }],
+        )
+        result = response.content[0].text.strip()
+        if result != "NO_UPDATE" and len(result) > 100:
+            await asyncio.to_thread(update_memory, result)
+            invalidate_memory_cache()
+    except Exception as e:
+        print(f"⚠️ Error consolidando memoria: {e}")
+
+
 async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
     """Core agentic loop — processes any text message (typed or transcribed)."""
     chat_id = str(update.effective_chat.id)
@@ -349,6 +399,8 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         if len(conversations[chat_id]) > MAX_MESSAGES:
             conversations[chat_id] = conversations[chat_id][-MAX_MESSAGES:]
         _save_conversations(conversations)
+        # Fire-and-forget memory consolidation (doesn't block the response)
+        asyncio.create_task(_consolidate_memory(chat_id))
 
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
