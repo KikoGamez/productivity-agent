@@ -36,8 +36,8 @@ DAILY_BRIEFING_PROMPT = """Genera el briefing diario completo. Sé directo y est
 
 Pasos que debes seguir EN ESTE ORDEN:
 1. Llama a web_search con la query: "AI robotics tech companies business news today site:ft.com OR site:nytimes.com OR site:wsj.com OR site:bloomberg.com OR site:reuters.com" — noticias de negocio sobre empresas tecnológicas, IA y robótica
-2. Llama a read_emails (unread_only=true, max_emails=20) para revisar emails de personas reales
-3. Llama a generate_agenda_data para obtener agenda, tareas pendientes y déficit de horas
+2. Llama a read_emails (unread_only=false, max_emails=30) para revisar emails de hoy y ayer
+3. Llama a generate_agenda_data para obtener eventos del día, tareas pendientes, horas consumidas por rama y déficit de horas
 
 Con todos los datos, genera el briefing con estas secciones EN ESTE ORDEN:
 
@@ -51,10 +51,10 @@ REGLA ESTRICTA: solo emails de personas reales que esperan respuesta. Excluir si
 Si no hay ninguno: "Nada urgente."
 
 📅 AGENDA PROPUESTA
-Teniendo en cuenta los eventos del día, las tareas pendientes, los emails que hay que responder y el déficit de horas por rama, propón un plan concreto para el día. Incluye bloques horarios aproximados. Prioriza responder emails urgentes si los hay.
+Con todos los datos anteriores (eventos, tareas pendientes, horas consumidas por rama, déficit acumulado y emails a responder), propón un plan concreto para el día con bloques horarios aproximados. Prioriza las ramas con más déficit de horas y los emails que requieren respuesta. Menciona el estado de horas de cada rama si hay déficit relevante.
 
 ⚠️ RECORDATORIOS
-Ramas con déficit alto, tareas paradas hace mucho tiempo, cualquier urgencia detectada."""
+Ramas con déficit alto esta semana, tareas que lleven mucho tiempo sin moverse, cualquier urgencia detectada."""
 
 WEEKLY_SUMMARY_PROMPT = """Genera el resumen semanal de productividad. Sé directo y estructurado.
 
