@@ -1,5 +1,6 @@
 import io
 import os
+import json
 import asyncio
 import datetime
 import anthropic
@@ -25,8 +26,32 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 client = anthropic.Anthropic()
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
-# Conversation history per chat_id
-conversations: dict = {}
+# ─────────────────────────────────────────────
+# Conversation persistence
+# ─────────────────────────────────────────────
+
+CONVERSATIONS_FILE = "conversations.json"
+MAX_MESSAGES = 60  # max messages per chat (keep last N to avoid context overflow)
+
+
+def _load_conversations() -> dict:
+    try:
+        with open(CONVERSATIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_conversations(convs: dict):
+    try:
+        with open(CONVERSATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(convs, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"⚠️ Error guardando conversaciones: {e}")
+
+
+# Load from disk on startup
+conversations: dict = _load_conversations()
 
 # ─────────────────────────────────────────────
 # Prompts para briefings automáticos
@@ -251,7 +276,7 @@ async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
     """Core agentic loop — processes any text message (typed or transcribed)."""
-    chat_id = update.effective_chat.id
+    chat_id = str(update.effective_chat.id)
 
     if chat_id not in conversations:
         conversations[chat_id] = []
@@ -319,6 +344,18 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 
     except Exception as exc:
         await update.message.reply_text(f"⚠️ Error: {exc}")
+    finally:
+        # Trim to last MAX_MESSAGES and persist to disk
+        if len(conversations[chat_id]) > MAX_MESSAGES:
+            conversations[chat_id] = conversations[chat_id][-MAX_MESSAGES:]
+        _save_conversations(conversations)
+
+
+async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    conversations[chat_id] = []
+    _save_conversations(conversations)
+    await update.message.reply_text("🗑️ Historial borrado. Empezamos de cero.")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -441,6 +478,7 @@ def main():
     app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("briefing", manual_briefing))
     app.add_handler(CommandHandler("resumen", manual_weekly))
+    app.add_handler(CommandHandler("olvida", clear_history))
 
     # Message handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
