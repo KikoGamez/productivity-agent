@@ -370,6 +370,26 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Error procesando el archivo: {exc}")
 
 
+def _clean_transcription(text: str) -> str:
+    """Post-process a raw Whisper transcription with Haiku:
+    add punctuation, fix obvious transcription errors, preserve all words."""
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1024,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Eres un corrector de transcripciones de voz. "
+                "Tu única tarea es añadir puntuación, mayúsculas y corregir palabras que el reconocedor de voz haya transcrito mal (por similitud fonética). "
+                "NUNCA cambies el significado, añadas palabras nuevas ni elimines nada. "
+                "Devuelve ÚNICAMENTE el texto corregido, sin explicaciones ni comentarios.\n\n"
+                f"Transcripción:\n{text}"
+            ),
+        }],
+    )
+    return response.content[0].text.strip()
+
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
@@ -393,6 +413,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not text:
             await update.message.reply_text("⚠️ No pude entender el audio.")
             return
+
+        # Post-process: fix punctuation and transcription errors without changing content
+        text = await asyncio.to_thread(_clean_transcription, text)
 
         # Always transcription-only: return plain text, no agent processing
         await update.message.reply_text(text)
