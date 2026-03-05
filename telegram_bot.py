@@ -36,7 +36,7 @@ DAILY_BRIEFING_PROMPT = """Genera el briefing diario completo. Sé directo y est
 
 Pasos que debes seguir EN ESTE ORDEN:
 1. Llama a web_search con la query: "AI robotics tech companies business news today site:ft.com OR site:nytimes.com OR site:wsj.com OR site:bloomberg.com OR site:reuters.com" — noticias de negocio sobre empresas tecnológicas, IA y robótica
-2. Llama a read_emails (unread_only=false, max_emails=30) para revisar emails de hoy y ayer
+2. Llama a read_emails (yesterday_only=true, unread_only=false, max_emails=30) para revisar emails del día anterior
 3. Llama a generate_agenda_data para obtener eventos del día, tareas pendientes, horas consumidas por rama y déficit de horas
 
 Con todos los datos, genera el briefing con estas secciones EN ESTE ORDEN:
@@ -47,7 +47,9 @@ EXCLUIR: análisis macroeconómicos generales sin empresa tech protagonista, not
 Por cada noticia: titular, una frase de contexto y link directo al medio que la haya cubierto mejor.
 
 📧 EMAILS A RESPONDER
-REGLA ESTRICTA: solo emails de personas reales que esperan respuesta. Excluir sin excepciones: plataformas, newsletters, notificaciones automáticas, noreply, marketing, alertas de servicios.
+REGLA ESTRICTA: solo emails de personas reales que esperan respuesta directa tuya.
+Excluir sin excepciones: newsletters, marketing, notificaciones automáticas, noreply, alertas de plataformas, confirmaciones, facturas.
+Excepción LinkedIn: incluir SOLO notificaciones de mensaje directo recibido ("tienes un nuevo mensaje de X"). Excluir todo lo demás de LinkedIn (visitas al perfil, likes, sugerencias, invitaciones, etc.).
 Si no hay ninguno: "Nada urgente."
 
 📅 AGENDA PROPUESTA

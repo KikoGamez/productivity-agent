@@ -29,14 +29,19 @@ def _extract_plain_text(payload: dict) -> str:
     return "[No se pudo extraer el cuerpo del correo]"
 
 
-def read_emails(max_emails: int = 10, unread_only: bool = True) -> list:
+def read_emails(max_emails: int = 10, unread_only: bool = True, yesterday_only: bool = False) -> list:
     """Return a list of emails from Gmail primary inbox (no newsletters or commercial emails)."""
+    import datetime as _dt
     service = get_google_service("gmail", "v1")
 
     # category:primary = pestaña Principal de Gmail (excluye promociones, social, actualizaciones)
     query = "in:inbox category:primary"
     if unread_only:
         query += " is:unread"
+    if yesterday_only:
+        today = _dt.date.today()
+        yesterday = today - _dt.timedelta(days=1)
+        query += f" after:{yesterday.strftime('%Y/%m/%d')} before:{today.strftime('%Y/%m/%d')}"
     result = (
         service.users()
         .messages()

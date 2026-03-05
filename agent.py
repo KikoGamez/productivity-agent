@@ -161,6 +161,10 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Solo correos no leídos (por defecto true)",
                 },
+                "yesterday_only": {
+                    "type": "boolean",
+                    "description": "Solo correos recibidos ayer (por defecto false)",
+                },
             },
             "required": [],
         },
@@ -531,6 +535,7 @@ def execute_tool(name: str, tool_input: dict) -> str:
             emails = read_emails(
                 max_emails=tool_input.get("max_emails", 10),
                 unread_only=tool_input.get("unread_only", True),
+                yesterday_only=tool_input.get("yesterday_only", False),
             )
             return (
                 json.dumps(emails, ensure_ascii=False, indent=2)
