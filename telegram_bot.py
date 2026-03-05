@@ -34,32 +34,27 @@ conversations: dict = {}
 
 DAILY_BRIEFING_PROMPT = """Genera el briefing diario completo. Sé directo y estructurado. Usa emojis para separar secciones.
 
-Pasos que debes seguir (usa las herramientas en este orden):
-1. Llama a generate_agenda_data para obtener agenda, tareas pendientes y déficit de horas
-2. Llama a web_search con la query: "most important business economy news today Financial Times Wall Street Journal Expansion site:ft.com OR site:wsj.com OR site:expansion.com OR site:economist.com OR site:nytimes.com" para obtener las 3 noticias más relevantes de prensa económica
-3. Llama a read_emails (unread_only=true, max_emails=20) para revisar newsletters y emails importantes
+Pasos que debes seguir EN ESTE ORDEN:
+1. Llama a web_search con la query: "AI robotics tech companies business news today site:ft.com OR site:nytimes.com OR site:wsj.com OR site:bloomberg.com OR site:reuters.com" — noticias de negocio sobre empresas tecnológicas, IA y robótica
+2. Llama a read_emails (unread_only=true, max_emails=20) para revisar emails de personas reales
+3. Llama a generate_agenda_data para obtener agenda, tareas pendientes y déficit de horas
 
-Con todos los datos, genera el briefing con estas secciones:
-
-📅 AGENDA DE HOY
-Eventos del día y bloques de trabajo recomendados priorizando las ramas con más déficit de horas.
+Con todos los datos, genera el briefing con estas secciones EN ESTE ORDEN:
 
 📰 TOP 3 NOTICIAS
-Las 3 noticias más importantes del día de prensa económica y de negocios. Criterio: noticias con impacto real en economía, empresas, mercados o política económica — no lanzamientos de modelos de IA ni productos tech puros salvo que tengan impacto económico relevante (ej: movimiento bursátil, regulación, fusión, política comercial).
-Por cada noticia: titular, una frase de contexto, y el link directo al medio que la haya cubierto mejor (FT, WSJ, The Economist, NYT Business, Bloomberg, Reuters, Expansión, El País Economía).
+Noticias de negocio sobre empresas de IA, robótica y tecnología: financiación, adquisiciones, lanzamientos de producto con impacto comercial, movimientos de mercado, regulación, alianzas estratégicas. Cubiertas por FT, NYT, WSJ, Bloomberg o Reuters.
+EXCLUIR: análisis macroeconómicos generales sin empresa tech protagonista, noticias de política o economía sin conexión directa con el sector tech.
+Por cada noticia: titular, una frase de contexto y link directo al medio que la haya cubierto mejor.
 
-📧 EMAILS IMPORTANTES
-REGLA ESTRICTA: solo aparecen aquí emails donde el remitente es una persona humana concreta (nombre + apellido o empresa conocida del usuario) que espera respuesta directa.
-EXCLUIR SIN EXCEPCIONES aunque el contenido parezca urgente o accionable: notificaciones de GitHub, Google, LinkedIn, Notion, Stripe, Slack, cualquier plataforma o servicio, newsletters, alertas de seguridad automáticas, avisos de expiración de tokens/contraseñas, confirmaciones, facturas, marketing, y cualquier email enviado por un sistema automático o noreply.
-Si no hay emails de personas reales: escribe únicamente "Nada urgente."
+📧 EMAILS A RESPONDER
+REGLA ESTRICTA: solo emails de personas reales que esperan respuesta. Excluir sin excepciones: plataformas, newsletters, notificaciones automáticas, noreply, marketing, alertas de servicios.
+Si no hay ninguno: "Nada urgente."
+
+📅 AGENDA PROPUESTA
+Teniendo en cuenta los eventos del día, las tareas pendientes, los emails que hay que responder y el déficit de horas por rama, propón un plan concreto para el día. Incluye bloques horarios aproximados. Prioriza responder emails urgentes si los hay.
 
 ⚠️ RECORDATORIOS
-- Ramas con déficit alto de horas esta semana
-- Tareas que lleven mucho tiempo sin moverse (basándote en las tareas pendientes)
-- Cualquier urgencia que detectes
-
-💡 FOCO DEL DÍA
-Una sola acción concreta que más impacto tendría hoy."""
+Ramas con déficit alto, tareas paradas hace mucho tiempo, cualquier urgencia detectada."""
 
 WEEKLY_SUMMARY_PROMPT = """Genera el resumen semanal de productividad. Sé directo y estructurado.
 
