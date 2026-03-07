@@ -204,6 +204,21 @@ async def weekly_summary_job(context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def google_token_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
+    """Refresh Google token every 5 days to prevent expiry in Testing mode."""
+    try:
+        from tools.google_auth import get_credentials
+        await asyncio.to_thread(get_credentials)
+        print("🔑 Google token keep-alive: OK")
+    except Exception as e:
+        print(f"⚠️ Google token keep-alive falló: {e}")
+        if TELEGRAM_CHAT_ID:
+            await context.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=f"⚠️ El token de Google necesita renovarse. Ejecuta `python regenerate_token.py` y actualiza Railway.\n\nError: {e}"
+            )
+
+
 # ─────────────────────────────────────────────
 # Command handlers
 # ─────────────────────────────────────────────
@@ -551,7 +566,13 @@ def main():
             time=datetime.time(18, 0, 0, tzinfo=MADRID_TZ),
             days=(4,),  # 0=Monday … 4=Friday
         )
-        print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid")
+        # Google token keep-alive every 5 days
+        job_queue.run_repeating(
+            google_token_keepalive_job,
+            interval=datetime.timedelta(days=5),
+            first=datetime.timedelta(seconds=10),
+        )
+        print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid | Token keep-alive: cada 5 días")
     else:
         print("⚠️ TELEGRAM_CHAT_ID no configurado — mensajes automáticos desactivados. Usa /myid para obtenerlo.")
 
