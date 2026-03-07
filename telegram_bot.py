@@ -55,6 +55,36 @@ def _save_conversations(convs: dict):
 conversations: dict = _load_conversations()
 
 # ─────────────────────────────────────────────
+# Conversation sanitization
+# ─────────────────────────────────────────────
+
+def _sanitize_messages(messages: list) -> list:
+    """Remove orphaned tool_use blocks that have no matching tool_result.
+    This prevents 400 errors when conversation history gets corrupted mid-tool-use."""
+    if not messages:
+        return messages
+
+    sanitized = list(messages)
+
+    # Walk backwards and remove any trailing assistant message with unmatched tool_use
+    while sanitized:
+        last = sanitized[-1]
+        if last["role"] == "assistant":
+            content = last["content"]
+            if isinstance(content, list):
+                has_tool_use = any(
+                    b.get("type") == "tool_use" if isinstance(b, dict) else getattr(b, "type", None) == "tool_use"
+                    for b in content
+                )
+                if has_tool_use:
+                    sanitized.pop()
+                    continue
+        break
+
+    return sanitized
+
+
+# ─────────────────────────────────────────────
 # Prompts para briefings automáticos
 # ─────────────────────────────────────────────
 
@@ -346,6 +376,8 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     if chat_id not in conversations:
         conversations[chat_id] = []
 
+    # Clean any orphaned tool_use blocks before adding new message
+    conversations[chat_id] = _sanitize_messages(conversations[chat_id])
     conversations[chat_id].append({"role": "user", "content": user_message})
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
