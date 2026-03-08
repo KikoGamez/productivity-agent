@@ -71,10 +71,10 @@ def get_tasks(branch: str = None, status: str = None) -> list:
         task = {
             "id": page["id"],
             "title": _get_text(props.get("Name")),
-            "branch": (props.get("Branch") or {}).get("select", {}).get("name", ""),
-            "status": (props.get("Status") or {}).get("select", {}).get("name", ""),
-            "priority": (props.get("Priority") or {}).get("select", {}).get("name", ""),
-            "estimated_hours": (props.get("Estimated Hours") or {}).get("number", 0),
+            "branch": ((props.get("Branch") or {}).get("select") or {}).get("name", ""),
+            "status": ((props.get("Status") or {}).get("select") or {}).get("name", ""),
+            "priority": ((props.get("Priority") or {}).get("select") or {}).get("name", ""),
+            "estimated_hours": (props.get("Estimated Hours") or {}).get("number") or 0,
         }
         due = (props.get("Due Date") or {}).get("date")
         if due:
@@ -132,8 +132,8 @@ def get_weekly_hours_by_branch() -> dict:
     hours_by_branch: dict = {}
     for page in results.get("results", []):
         props = page["properties"]
-        branch = (props.get("Branch") or {}).get("select", {}).get("name")
-        hours = (props.get("Hours") or {}).get("number", 0) or 0
+        branch = ((props.get("Branch") or {}).get("select") or {}).get("name")
+        hours = (props.get("Hours") or {}).get("number") or 0
         if branch:
             hours_by_branch[branch] = round(hours_by_branch.get(branch, 0) + hours, 2)
     return hours_by_branch
