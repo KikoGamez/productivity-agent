@@ -8,6 +8,7 @@ from config import BRANCHES, BRANCH_HOURS
 from tools.notion_tools import (
     create_task,
     get_tasks,
+    update_task_status,
     save_meeting_notes,
     get_weekly_hours_by_branch,
     log_time,
@@ -106,6 +107,28 @@ TOOLS = [
                 },
             },
             "required": [],
+        },
+    },
+    {
+        "name": "update_task_status",
+        "description": (
+            "Actualiza el estado de una tarea en Notion. Úsalo cuando el usuario "
+            "diga que ha completado, empezado o quiera cambiar el estado de una tarea."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "ID de la tarea en Notion (obtenido de get_tasks)",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["Pending", "In Progress", "Done"],
+                    "description": "Nuevo estado de la tarea",
+                },
+            },
+            "required": ["task_id", "status"],
         },
     },
     {
@@ -527,6 +550,12 @@ def execute_tool(name: str, tool_input: dict) -> str:
                 json.dumps(tasks, ensure_ascii=False, indent=2)
                 if tasks
                 else "No se encontraron tareas con esos filtros."
+            )
+
+        elif name == "update_task_status":
+            return update_task_status(
+                task_id=tool_input["task_id"],
+                status=tool_input["status"],
             )
 
         elif name == "save_meeting_notes":

@@ -83,6 +83,17 @@ def get_tasks(branch: str = None, status: str = None) -> list:
     return tasks
 
 
+def update_task_status(task_id: str, status: str) -> str:
+    """Update the status of a task in Notion (e.g. 'Done', 'Pending', 'In Progress')."""
+    notion.pages.update(
+        page_id=task_id,
+        properties={
+            "Status": {"select": {"name": status}},
+        },
+    )
+    return f"✅ Tarea actualizada a '{status}'"
+
+
 def save_meeting_notes(
     title: str,
     attendees: str,
