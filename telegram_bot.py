@@ -553,9 +553,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Post-process: fix punctuation and transcription errors without changing content
         text = await asyncio.to_thread(_clean_transcription, text)
 
-        # If starts with "transcripción" or "transcríbeme", return plain text only
+        # If starts with a transcription keyword, strip it and return plain text only
         lower = text.lower()
-        if lower.startswith("transcripción") or lower.startswith("transcríbeme"):
+        transcribe_prefixes = ["transcríbeme esto", "transcribeme esto",
+                               "transcríbeme", "transcribeme",
+                               "transcripción", "transcripcion"]
+        is_transcribe_only = False
+        for prefix in transcribe_prefixes:
+            if lower.startswith(prefix):
+                text = text[len(prefix):].lstrip(" .,;:—-")
+                is_transcribe_only = True
+                break
+        if is_transcribe_only:
             await update.message.reply_text(text)
         else:
             # Process as a regular message through the agent
