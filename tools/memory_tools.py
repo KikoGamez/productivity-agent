@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from notion_client import Client
 
 
@@ -12,16 +13,25 @@ def get_memory() -> str:
     if not page_id:
         return ""
     try:
-        blocks = _notion().blocks.children.list(block_id=page_id)
+        notion = _notion()
         lines = []
-        for block in blocks["results"]:
-            btype = block["type"]
-            if btype in ("paragraph", "heading_1", "heading_2", "heading_3",
-                         "bulleted_list_item", "numbered_list_item", "quote"):
-                rich_text = block[btype].get("rich_text", [])
-                text = "".join(rt["plain_text"] for rt in rich_text)
-                if text.strip():
-                    lines.append(text)
+        cursor = None
+        while True:
+            params = {"block_id": page_id, "page_size": 100}
+            if cursor:
+                params["start_cursor"] = cursor
+            blocks = notion.blocks.children.list(**params)
+            for block in blocks["results"]:
+                btype = block["type"]
+                if btype in ("paragraph", "heading_1", "heading_2", "heading_3",
+                             "bulleted_list_item", "numbered_list_item", "quote"):
+                    rich_text = block[btype].get("rich_text", [])
+                    text = "".join(rt["plain_text"] for rt in rich_text)
+                    if text.strip():
+                        lines.append(text)
+            if not blocks.get("has_more"):
+                break
+            cursor = blocks["next_cursor"]
         return "\n".join(lines)
     except Exception as e:
         return f"[Error leyendo memoria: {e}]"
@@ -34,10 +44,26 @@ def update_memory(new_content: str) -> str:
         return "Error: NOTION_MEMORY_PAGE_ID no configurado."
     try:
         notion = _notion()
-        # Delete all existing blocks
-        existing = notion.blocks.children.list(block_id=page_id)
-        for block in existing["results"]:
-            notion.blocks.delete(block_id=block["id"])
+
+        # Collect ALL block IDs (paginated)
+        block_ids = []
+        cursor = None
+        while True:
+            params = {"block_id": page_id, "page_size": 100}
+            if cursor:
+                params["start_cursor"] = cursor
+            blocks = notion.blocks.children.list(**params)
+            block_ids.extend(b["id"] for b in blocks["results"])
+            if not blocks.get("has_more"):
+                break
+            cursor = blocks["next_cursor"]
+
+        # Delete all blocks in parallel (10 concurrent threads)
+        if block_ids:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                futures = [pool.submit(notion.blocks.delete, block_id=bid) for bid in block_ids]
+                for f in as_completed(futures):
+                    f.result()  # raise if any failed
 
         # Write new content
         children = []
