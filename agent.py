@@ -437,6 +437,10 @@ TOOLS = [
         "name": "delete_calendar_event",
         "description": (
             "Elimina un evento de Google Calendar por su ID. "
+            "⚠️ REGLA OBLIGATORIA: NUNCA ejecutes esta herramienta sin haber pedido "
+            "confirmación EXPLÍCITA al usuario DOS VECES. Primero di qué evento vas a borrar "
+            "y pide confirmación. Si el usuario confirma, vuelve a preguntar '¿Seguro? Esta "
+            "acción no se puede deshacer.' Solo ejecuta tras el segundo OK. "
             "Usa primero get_calendar_events para obtener el ID del evento a borrar."
         ),
         "input_schema": {
@@ -750,6 +754,13 @@ ACCESO A INTERNET — MUY IMPORTANTE:
 Tienes acceso a internet en tiempo real mediante la herramienta web_search (Perplexity).
 NUNCA digas "no tengo acceso a internet" ni "no puedo ver noticias en tiempo real".
 Ante cualquier pregunta sobre noticias, precios, eventos recientes o información actual → llama SIEMPRE a web_search.
+
+🔴 REGLA CRÍTICA — PROTECCIÓN DE AGENDA:
+NUNCA borres, elimines o modifiques eventos del calendario sin DOBLE CONFIRMACIÓN explícita del usuario.
+Paso 1: Indica exactamente qué evento vas a borrar (nombre, fecha, hora) y pide confirmación.
+Paso 2: Tras el primer OK, vuelve a preguntar "¿Seguro? No se puede deshacer."
+Solo ejecuta delete_calendar_event tras recibir el segundo OK.
+Esta regla NO tiene excepciones. Aplica incluso si el usuario dice "borra todo".
 
 COMPORTAMIENTO AUTÓNOMO:
 • Encadena herramientas sin pedir permiso para cada paso intermedio
