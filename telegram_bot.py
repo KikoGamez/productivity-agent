@@ -54,6 +54,9 @@ def _save_conversations(convs: dict):
 # Load from disk on startup
 conversations: dict = _load_conversations()
 
+# Per-chat locks to prevent race conditions when processing concurrent messages
+_chat_locks: dict[str, asyncio.Lock] = {}
+
 # ─────────────────────────────────────────────
 # Conversation sanitization
 # ─────────────────────────────────────────────
@@ -411,6 +414,18 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     """Core agentic loop — processes any text message (typed or transcribed)."""
     chat_id = str(update.effective_chat.id)
 
+    # Serialize messages per chat to prevent race conditions
+    if chat_id not in _chat_locks:
+        _chat_locks[chat_id] = asyncio.Lock()
+
+    if _chat_locks[chat_id].locked():
+        await update.message.reply_text("⏳ Espera, aún estoy procesando tu mensaje anterior...")
+
+    async with _chat_locks[chat_id]:
+        await _process_message_inner(update, context, user_message, chat_id)
+
+
+async def _process_message_inner(update, context, user_message, chat_id):
     if chat_id not in conversations:
         conversations[chat_id] = []
 
