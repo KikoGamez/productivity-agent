@@ -460,8 +460,19 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
-                        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-                        result = await asyncio.to_thread(execute_tool, block.name, block.input)
+                        # Keep "typing" indicator alive during long tool calls
+                        async def _keep_typing():
+                            try:
+                                while True:
+                                    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                                    await asyncio.sleep(4)
+                            except asyncio.CancelledError:
+                                pass
+                        typing_task = asyncio.create_task(_keep_typing())
+                        try:
+                            result = await asyncio.to_thread(execute_tool, block.name, block.input)
+                        finally:
+                            typing_task.cancel()
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,

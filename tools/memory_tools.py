@@ -38,7 +38,11 @@ def get_memory() -> str:
 
 
 def update_memory(new_content: str) -> str:
-    """Replace the agent's memory page with updated content."""
+    """Replace the agent's memory page with updated content.
+
+    Uses chunked paragraph blocks (max 2000 chars each) to minimize API calls.
+    Deletes old blocks in parallel for speed.
+    """
     page_id = os.environ.get("NOTION_MEMORY_PAGE_ID", "")
     if not page_id:
         return "Error: NOTION_MEMORY_PAGE_ID no configurado."
@@ -65,23 +69,19 @@ def update_memory(new_content: str) -> str:
                 for f in as_completed(futures):
                     f.result()  # raise if any failed
 
-        # Write new content
+        # Write new content as chunked paragraphs (max 2000 chars each)
+        # This minimizes the number of blocks created (fewer API calls)
         children = []
+        chunk = ""
         for line in new_content.split("\n"):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if stripped.startswith("## "):
-                btype, text = "heading_2", stripped[3:]
-            elif stripped.startswith("# "):
-                btype, text = "heading_1", stripped[2:]
+            if len(chunk) + len(line) + 1 > 1900:
+                if chunk.strip():
+                    children.append(_make_block(chunk.strip()))
+                chunk = line + "\n"
             else:
-                btype, text = "paragraph", stripped
-            children.append({
-                "object": "block",
-                "type": btype,
-                btype: {"rich_text": [{"type": "text", "text": {"content": text[:2000]}}]},
-            })
+                chunk += line + "\n"
+        if chunk.strip():
+            children.append(_make_block(chunk.strip()))
 
         for i in range(0, len(children), 100):
             notion.blocks.children.append(block_id=page_id, children=children[i:i+100])
@@ -89,3 +89,12 @@ def update_memory(new_content: str) -> str:
         return "✅ Memoria actualizada."
     except Exception as e:
         return f"Error actualizando memoria: {e}"
+
+
+def _make_block(text: str) -> dict:
+    """Create a Notion paragraph block."""
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": [{"type": "text", "text": {"content": text}}]},
+    }
