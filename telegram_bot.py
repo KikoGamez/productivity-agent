@@ -59,29 +59,67 @@ conversations: dict = _load_conversations()
 # ─────────────────────────────────────────────
 
 def _sanitize_messages(messages: list) -> list:
-    """Remove orphaned tool_use blocks that have no matching tool_result.
-    This prevents 400 errors when conversation history gets corrupted mid-tool-use."""
+    """Remove orphaned tool_use / tool_result blocks from conversation history.
+    This prevents 400 errors when history gets corrupted mid-tool-use.
+
+    Rules enforced:
+    1. Every tool_result in a user message must reference a tool_use_id from the
+       immediately preceding assistant message.
+    2. Every assistant message that contains tool_use blocks must be followed by
+       a user message with the matching tool_result blocks.
+    3. Trailing assistant messages with tool_use (no response yet) are removed.
+    """
     if not messages:
         return messages
 
     sanitized = list(messages)
 
-    # Walk backwards and remove any trailing assistant message with unmatched tool_use
+    # --- Pass 1: remove trailing assistant messages with unmatched tool_use ---
     while sanitized:
         last = sanitized[-1]
-        if last["role"] == "assistant":
-            content = last["content"]
-            if isinstance(content, list):
-                has_tool_use = any(
-                    b.get("type") == "tool_use" if isinstance(b, dict) else getattr(b, "type", None) == "tool_use"
-                    for b in content
-                )
-                if has_tool_use:
-                    sanitized.pop()
-                    continue
+        if last["role"] == "assistant" and isinstance(last.get("content"), list):
+            has_tool_use = any(
+                (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_use"
+                for b in last["content"]
+            )
+            if has_tool_use:
+                sanitized.pop()
+                continue
         break
 
-    return sanitized
+    # --- Pass 2: walk forward and drop orphaned tool_result user messages ---
+    cleaned = []
+    for i, msg in enumerate(sanitized):
+        if msg["role"] == "user" and isinstance(msg.get("content"), list):
+            # Collect tool_use ids from the previous assistant message
+            prev_tool_ids = set()
+            if cleaned and cleaned[-1]["role"] == "assistant" and isinstance(cleaned[-1].get("content"), list):
+                for b in cleaned[-1]["content"]:
+                    block_type = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+                    block_id = b.get("id") if isinstance(b, dict) else getattr(b, "id", None)
+                    if block_type == "tool_use" and block_id:
+                        prev_tool_ids.add(block_id)
+
+            # Filter out tool_result blocks whose tool_use_id is not in prev
+            new_content = []
+            for b in msg["content"]:
+                block_type = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+                if block_type == "tool_result":
+                    tool_use_id = b.get("tool_use_id") if isinstance(b, dict) else getattr(b, "tool_use_id", None)
+                    if tool_use_id not in prev_tool_ids:
+                        continue  # orphaned tool_result — skip it
+                new_content.append(b)
+
+            if not new_content:
+                # Also remove the preceding assistant tool_use message if all results dropped
+                if cleaned and cleaned[-1]["role"] == "assistant" and prev_tool_ids:
+                    cleaned.pop()
+                continue  # skip this empty user message entirely
+            msg = {**msg, "content": new_content}
+
+        cleaned.append(msg)
+
+    return cleaned
 
 
 # ─────────────────────────────────────────────
