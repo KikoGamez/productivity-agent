@@ -361,31 +361,59 @@ async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _run_briefing(context, WEEKLY_SUMMARY_PROMPT, "📊 Resumen semanal:", chat_id=update.effective_chat.id)
 
 
+def _extract_text_from_message(msg: dict) -> str:
+    """Extract readable text from a message, handling both string and block content."""
+    content = msg.get("content")
+    role = "USUARIO" if msg["role"] == "user" else "AGENTE"
+    if isinstance(content, str) and content.strip():
+        return f"{role}: {content}"
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            # Dict blocks (tool_result, text)
+            if isinstance(block, dict):
+                if block.get("type") == "text" and block.get("text", "").strip():
+                    parts.append(block["text"])
+                elif block.get("type") == "tool_result":
+                    tool_content = block.get("content", "")
+                    if isinstance(tool_content, str) and len(tool_content) < 500:
+                        parts.append(f"[resultado herramienta: {tool_content[:200]}]")
+                elif block.get("type") == "tool_use":
+                    parts.append(f"[usa herramienta: {block.get('name', '?')}({json.dumps(block.get('input', {}), ensure_ascii=False)[:150]})]")
+            # Object blocks (from API response)
+            elif hasattr(block, "type"):
+                if block.type == "text" and getattr(block, "text", "").strip():
+                    parts.append(block.text)
+                elif block.type == "tool_use":
+                    parts.append(f"[usa herramienta: {block.name}({json.dumps(block.input, ensure_ascii=False)[:150]})]")
+        if parts:
+            return f"{role}: {' | '.join(parts)}"
+    return ""
+
+
 async def _consolidate_memory(chat_id: str):
-    """Background task: after each exchange, extract learnings and update memory via Haiku."""
+    """Background task: after each exchange, extract learnings and update memory via Sonnet."""
     messages = conversations.get(chat_id, [])
-    # Only text turns (skip tool_use/tool_result blocks)
-    text_turns = [
-        m for m in messages[-20:]
-        if isinstance(m.get("content"), str) and m["content"].strip()
-    ]
-    if len(text_turns) < 2:
+
+    # Extract text from last 30 messages (including tool use/results for context)
+    recent = messages[-30:]
+    text_parts = [_extract_text_from_message(m) for m in recent]
+    text_parts = [t for t in text_parts if t]
+
+    if len(text_parts) < 2:
         return
 
-    conversation_text = "\n".join(
-        f"{'USUARIO' if m['role'] == 'user' else 'AGENTE'}: {m['content']}"
-        for m in text_turns
-    )
+    conversation_text = "\n".join(text_parts)
     current_memory = get_memory_cached()
 
     try:
         response = await asyncio.to_thread(
             client.messages.create,
-            model="claude-haiku-4-5",
-            max_tokens=2000,
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
             messages=[{
                 "role": "user",
-                "content": f"""Eres el sistema de memoria de un asistente personal. Analiza la conversación y actualiza la memoria del usuario.
+                "content": f"""Eres el sistema de memoria persistente de un asistente personal. Tu trabajo es CRÍTICO: si no guardas algo, el asistente no lo recordará mañana.
 
 MEMORIA ACTUAL:
 {current_memory or "(vacía)"}
@@ -393,19 +421,41 @@ MEMORIA ACTUAL:
 CONVERSACIÓN RECIENTE:
 {conversation_text}
 
-Extrae TODO lo que sea útil para conocer mejor al usuario: trabajo, proyectos, decisiones, preferencias, hábitos, contactos mencionados, situación personal, frustraciones, objetivos, contexto de lo que está haciendo.
-Sé agresivo guardando información — mejor guardar de más que de menos.
-Integra lo nuevo con la memoria existente sin borrar nada relevante.
-Organiza en secciones: ## Trabajo y proyectos / ## Preferencias y hábitos / ## Contactos clave / ## Situación actual / ## Contexto y patrones.
+INSTRUCCIONES:
+1. Extrae AGRESIVAMENTE todo lo que sea útil. Mejor guardar de más que de menos.
+2. Información a capturar:
+   - Decisiones tomadas y por qué
+   - Tareas completadas, creadas o mencionadas
+   - Nombres de personas mencionadas y su contexto/relación
+   - Proyectos: estado actual, avances, bloqueos, próximos pasos
+   - Reuniones: con quién, sobre qué, conclusiones
+   - Preferencias expresadas (horarios, formas de trabajar, frustraciones)
+   - Cualquier hecho sobre la vida/trabajo del usuario
+   - Fechas y plazos mencionados
+3. NUNCA borres información existente de la memoria a menos que el usuario la haya corregido explícitamente
+4. Integra lo nuevo con lo existente, actualizando datos que hayan cambiado
+5. Organiza en secciones claras con ##
 
-Si realmente no hay nada nuevo relevante que añadir, responde solo: NO_UPDATE
-Si hay algo (aunque sea pequeño), responde con la memoria completa actualizada.""",
+SECCIONES:
+## Trayectoria profesional
+## Trabajo y proyectos activos
+## Contactos clave
+## Situación personal
+## Preferencias y hábitos
+## Decisiones recientes
+## Contexto y notas
+
+Si NO hay absolutamente nada nuevo que añadir, responde SOLO: NO_UPDATE
+Si hay CUALQUIER cosa nueva (aunque parezca menor), responde con la memoria COMPLETA actualizada.""",
             }],
         )
         result = response.content[0].text.strip()
         if result != "NO_UPDATE" and len(result) > 100:
             await asyncio.to_thread(update_memory, result)
             invalidate_memory_cache()
+            print(f"🧠 Memoria consolidada: {len(result)} chars")
+        else:
+            print("🧠 Memoria: sin cambios")
     except Exception as e:
         print(f"⚠️ Error consolidando memoria: {e}")
 
