@@ -677,13 +677,14 @@ def main():
             time=datetime.time(18, 0, 0, tzinfo=MADRID_TZ),
             days=(4,),  # 0=Monday … 4=Friday
         )
-        # Google token keep-alive every 5 days
-        job_queue.run_repeating(
+        # Google token keep-alive — refresh daily at 06:00 Madrid time
+        # (Google Testing mode tokens expire every 7 days; refreshing daily
+        # ensures the token stays alive even after Railway redeploys)
+        job_queue.run_daily(
             google_token_keepalive_job,
-            interval=datetime.timedelta(days=5),
-            first=datetime.timedelta(seconds=10),
+            time=datetime.time(6, 0, 0, tzinfo=MADRID_TZ),
         )
-        print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid | Token keep-alive: cada 5 días")
+        print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid | Token keep-alive: diario 06:00")
     else:
         print("⚠️ TELEGRAM_CHAT_ID no configurado — mensajes automáticos desactivados. Usa /myid para obtenerlo.")
 
