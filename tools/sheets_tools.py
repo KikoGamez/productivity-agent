@@ -4,7 +4,8 @@ from tools.google_auth import get_google_service
 SHEETS_ID = os.environ.get("GOOGLE_SHEETS_ID", "")
 SHEET_NAME = "Editorial"
 
-# Columns: A=ID, B=Plataforma, C=Título/Temática, D=Artículo, F=Rojo(no), G=Verde(sí)/Lápiz, H=Editor Jefe
+# Columns: A=ID, B=Plataforma, C=Título/Temática, D=Artículo desarrollado,
+# E=Estado, F=❌Rechazar, G=✅Aprobar, H=✏️Modificar, I=Editor Jefe
 
 
 def get_editorial_articles(only_pending: bool = True) -> list:
@@ -214,7 +215,7 @@ def set_editor_verdict(row: int, verdict: str) -> str:
     cell_value = f"{verdict} — {timestamp}"
     service.spreadsheets().values().update(
         spreadsheetId=SHEETS_ID,
-        range=f"{SHEET_NAME}!H{row}",
+        range=f"{SHEET_NAME}!I{row}",
         valueInputOption="USER_ENTERED",
         body={"values": [[cell_value]]},
     ).execute()
