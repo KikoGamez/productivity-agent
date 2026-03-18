@@ -49,12 +49,8 @@ def _execute_editor_tool(name: str, tool_input: dict) -> str:
     return f"Herramienta desconocida: {name}"
 
 
-def review_article(article_text: str, platform: str) -> str:
-    """Run the editor-in-chief agent on an article draft.
-
-    Returns a structured review with verdict and detailed findings.
-    """
-    # Gather style rules and references for context
+def _build_style_context(platform: str) -> tuple[str, str]:
+    """Load style rules and references for a platform."""
     style_rules = get_editorial_style(platform=platform)
     references = get_editorial_references(platform=platform)
 
@@ -67,6 +63,49 @@ def review_article(article_text: str, platform: str) -> str:
         for r in references
     ) if references else "(sin referencias definidas)"
 
+    return style_text, refs_text
+
+
+def _run_agentic_loop(system_prompt: str, user_message: str, tools: list,
+                      tool_executor, max_iterations: int = 15) -> str:
+    """Generic agentic loop with tool use."""
+    messages = [{"role": "user", "content": user_message}]
+
+    for _ in range(max_iterations):
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            system=system_prompt,
+            tools=tools,
+            messages=messages,
+        )
+
+        if response.stop_reason == "end_turn":
+            text_parts = [b.text for b in response.content if b.type == "text"]
+            return "\n".join(text_parts)
+
+        elif response.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    result = tool_executor(block.name, block.input)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+            messages.append({"role": "user", "content": tool_results})
+
+        else:
+            text_parts = [b.text for b in response.content if b.type == "text"]
+            return "\n".join(text_parts) if text_parts else "Error: proceso incompleto."
+
+    return "Error: se excedió el límite de iteraciones."
+
+
+def _fact_check(article_text: str, platform: str, style_text: str, refs_text: str) -> str:
+    """Phase 1: Verify all claims in the article via web search."""
     system_prompt = f"""Eres el EDITOR JEFE de un medio de comunicación profesional. Tu trabajo es garantizar
 la RIGUROSIDAD ABSOLUTA de cada artículo antes de publicación.
 
@@ -127,40 +166,118 @@ REGLAS INQUEBRANTABLES:
 • "Según estudios" sin citar cuál estudio = NO ACEPTABLE
 • Mejor un artículo sin cifra que un artículo con cifra inventada"""
 
-    messages = [{"role": "user", "content": f"Revisa este artículo:\n\n{article_text}"}]
+    return _run_agentic_loop(
+        system_prompt=system_prompt,
+        user_message=f"Revisa este artículo:\n\n{article_text}",
+        tools=EDITOR_TOOLS,
+        tool_executor=_execute_editor_tool,
+    )
 
-    # Agentic loop — let the editor verify claims autonomously
-    max_iterations = 15  # safety limit
-    for _ in range(max_iterations):
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system=system_prompt,
-            tools=EDITOR_TOOLS,
-            messages=messages,
-        )
 
-        if response.stop_reason == "end_turn":
-            # Extract final text
-            text_parts = [b.text for b in response.content if b.type == "text"]
-            return "\n".join(text_parts)
+def _rewrite_article(original_text: str, review: str, platform: str,
+                     style_text: str, refs_text: str) -> str:
+    """Phase 2: Rewrite the article with verified data, real sources, and correct style."""
 
-        elif response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = _execute_editor_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
-            messages.append({"role": "user", "content": tool_results})
+    rewrite_tools = [
+        {
+            "name": "search_data",
+            "description": (
+                "Busca en internet datos reales, estadísticas verificadas y fuentes "
+                "fiables para incluir en el artículo reescrito. Úsalo para encontrar "
+                "los datos correctos que reemplacen los incorrectos del borrador."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Búsqueda para encontrar datos reales y fuentes verificadas",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    ]
 
-        else:
-            # Unexpected stop reason
-            text_parts = [b.text for b in response.content if b.type == "text"]
-            return "\n".join(text_parts) if text_parts else "Error: revisión incompleta."
+    def _execute_rewrite_tool(name: str, tool_input: dict) -> str:
+        if name == "search_data":
+            return web_search(tool_input["query"])
+        return f"Herramienta desconocida: {name}"
 
-    return "Error: la revisión excedió el límite de iteraciones."
+    system_prompt = f"""Eres un REDACTOR EDITORIAL de primer nivel. Tu tarea es REESCRIBIR un artículo
+que no ha pasado el control de calidad del editor jefe.
+
+PLATAFORMA DE DESTINO: {platform}
+
+REGLAS DE ESTILO EDITORIAL:
+{style_text}
+
+MEDIOS DE REFERENCIA (imita su tono y estilo):
+{refs_text}
+
+INSTRUCCIONES DE REESCRITURA:
+
+1. DATOS Y FUENTES:
+   - Usa la herramienta search_data para buscar datos REALES que reemplacen los incorrectos
+   - CADA estadística, cifra y dato debe tener una fuente real verificable
+   - Cita las fuentes explícitamente: "según [informe/estudio] de [organización] ([año])"
+   - Si no encuentras un dato fiable para una afirmación, ELIMINA esa afirmación
+   - NUNCA inventes datos, cifras ni fuentes
+
+2. ESTILO:
+   - Mantén el tono y la voz del autor original — es un ejecutivo con 25 años de experiencia
+     en multinacionales, experto en tecnología, IA y growth
+   - El estilo debe ser: analítico, con opinión fundamentada, directo, sin rodeos
+   - No uses frases genéricas ni vacías. Cada párrafo debe aportar información concreta
+   - Adapta al estilo de los medios de referencia indicados arriba
+
+3. ESTRUCTURA:
+   - Mantén la estructura temática del artículo original
+   - Puedes reorganizar párrafos para mejorar el flujo argumentativo
+   - El artículo debe tener una tesis clara y datos que la respalden
+
+4. OUTPUT:
+   - Devuelve SOLO el artículo reescrito completo, listo para publicar
+   - No incluyas comentarios, explicaciones ni notas al editor
+   - Al final del artículo, incluye una sección "---\\nFuentes:" con las URLs/referencias usadas"""
+
+    return _run_agentic_loop(
+        system_prompt=system_prompt,
+        user_message=(
+            f"ARTÍCULO ORIGINAL:\n{original_text}\n\n"
+            f"REVISIÓN DEL EDITOR JEFE:\n{review}\n\n"
+            "Reescribe el artículo corrigiendo TODOS los problemas detectados. "
+            "Busca datos reales para cada afirmación que lo necesite."
+        ),
+        tools=rewrite_tools,
+        tool_executor=_execute_rewrite_tool,
+        max_iterations=15,
+    )
+
+
+def review_article(article_text: str, platform: str) -> str:
+    """Run the editor-in-chief pipeline on an article draft.
+
+    Phase 1: Fact-check and style review
+    Phase 2: If not approved, rewrite with verified data and sources
+    Returns the review + rewritten article (if applicable).
+    """
+    style_text, refs_text = _build_style_context(platform)
+
+    # Phase 1: Fact-check
+    review = _fact_check(article_text, platform, style_text, refs_text)
+
+    # If approved, return review only
+    if "APROBADO ✅" in review and "REQUIERE" not in review and "RECHAZADO" not in review:
+        return review
+
+    # Phase 2: Rewrite with real data
+    rewritten = _rewrite_article(article_text, review, platform, style_text, refs_text)
+
+    return (
+        f"{review}\n\n"
+        f"{'═' * 50}\n"
+        f"📝 ARTÍCULO REESCRITO CON DATOS VERIFICADOS:\n"
+        f"{'═' * 50}\n\n"
+        f"{rewritten}"
+    )
