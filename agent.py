@@ -19,6 +19,7 @@ from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
 from tools.documents_tools import save_document, search_documents, get_document_content
 from tools.sheets_tools import get_editorial_articles, mark_article, get_editorial_style, get_editorial_references
+from tools.editor_agent import review_article
 from tools.search_tools import web_search
 
 client = anthropic.Anthropic()
@@ -364,6 +365,32 @@ TOOLS = [
         },
     },
     {
+        "name": "review_article",
+        "description": (
+            "OBLIGATORIO antes de aprobar cualquier artículo editorial. "
+            "Lanza al editor jefe: un agente autónomo que verifica la rigurosidad "
+            "del artículo buscando en internet CADA dato, cifra, fuente y afirmación. "
+            "También revisa que el estilo sea coherente con las guías editoriales. "
+            "Devuelve un veredicto detallado (APROBADO / REQUIERE CAMBIOS / RECHAZADO). "
+            "NUNCA apruebes un artículo sin pasar esta revisión primero."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "article_text": {
+                    "type": "string",
+                    "description": "Texto completo del artículo a revisar",
+                },
+                "platform": {
+                    "type": "string",
+                    "enum": ["Economía Digital", "LinkedIn"],
+                    "description": "Plataforma destino del artículo",
+                },
+            },
+            "required": ["article_text", "platform"],
+        },
+    },
+    {
         "name": "add_contact",
         "description": "Añade un contacto de LinkedIn al registro de networking en Notion.",
         "input_schema": {
@@ -640,6 +667,12 @@ def execute_tool(name: str, tool_input: dict) -> str:
                 action=tool_input["action"],
             )
 
+        elif name == "review_article":
+            return review_article(
+                article_text=tool_input["article_text"],
+                platform=tool_input["platform"],
+            )
+
         elif name == "add_contact":
             return add_contact(
                 persona=tool_input["persona"],
@@ -766,6 +799,9 @@ COMPORTAMIENTO AUTÓNOMO:
 • Encadena herramientas sin pedir permiso para cada paso intermedio
 • Al recibir notas de reunión → guárdalas Y crea todas las tareas detectadas
 • Al revisar emails → identifica acciones y propone crear tareas
+• Al generar o revisar artículos editoriales → SIEMPRE pasa el artículo por review_article
+  ANTES de marcarlo como aprobado. NUNCA apruebes un artículo sin la revisión del editor jefe.
+  Si el editor jefe dice REQUIERE CAMBIOS o RECHAZADO, muestra las correcciones al usuario.
 • Al generar la agenda:
   1. Llama a generate_agenda_data para obtener todos los datos
   2. Propone bloques concretos priorizando ramas con más déficit
