@@ -12,7 +12,7 @@ import os
 import json
 import anthropic
 from tools.search_tools import web_search
-from tools.sheets_tools import get_editorial_style, get_editorial_references
+from tools.sheets_tools import get_editorial_style, get_editorial_references, set_editor_verdict
 
 client = anthropic.Anthropic()
 
@@ -255,11 +255,12 @@ INSTRUCCIONES DE REESCRITURA:
     )
 
 
-def review_article(article_text: str, platform: str) -> str:
+def review_article(article_text: str, platform: str, sheet_row: int = None) -> str:
     """Run the editor-in-chief pipeline on an article draft.
 
     Phase 1: Fact-check and style review
     Phase 2: If not approved, rewrite with verified data and sources
+    Writes the verdict to column H of the Sheet if sheet_row is provided.
     Returns the review + rewritten article (if applicable).
     """
     style_text, refs_text = _build_style_context(platform)
@@ -267,11 +268,23 @@ def review_article(article_text: str, platform: str) -> str:
     # Phase 1: Fact-check
     review = _fact_check(article_text, platform, style_text, refs_text)
 
-    # If approved, return review only
+    # Determine verdict for Sheet
     if "APROBADO ✅" in review and "REQUIERE" not in review and "RECHAZADO" not in review:
+        if sheet_row:
+            try:
+                set_editor_verdict(sheet_row, "✅ Aprobado")
+            except Exception as e:
+                print(f"⚠️ Error escribiendo veredicto en Sheet: {e}")
         return review
 
     # Phase 2: Rewrite with real data
+    verdict_label = "❌ Rechazado → Reescrito" if "RECHAZADO" in review else "⚠️ Corregido → Reescrito"
+    if sheet_row:
+        try:
+            set_editor_verdict(sheet_row, verdict_label)
+        except Exception as e:
+            print(f"⚠️ Error escribiendo veredicto en Sheet: {e}")
+
     rewritten = _rewrite_article(article_text, review, platform, style_text, refs_text)
 
     return (

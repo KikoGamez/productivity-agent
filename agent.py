@@ -386,6 +386,10 @@ TOOLS = [
                     "enum": ["Economía Digital", "LinkedIn"],
                     "description": "Plataforma destino del artículo",
                 },
+                "sheet_row": {
+                    "type": "integer",
+                    "description": "Fila del Sheet Editorial (obtenida de get_editorial_articles). Si se indica, escribe el veredicto en columna H.",
+                },
             },
             "required": ["article_text", "platform"],
         },
@@ -671,6 +675,7 @@ def execute_tool(name: str, tool_input: dict) -> str:
             return review_article(
                 article_text=tool_input["article_text"],
                 platform=tool_input["platform"],
+                sheet_row=tool_input.get("sheet_row"),
             )
 
         elif name == "add_contact":

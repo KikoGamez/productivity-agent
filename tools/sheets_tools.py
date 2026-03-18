@@ -4,7 +4,7 @@ from tools.google_auth import get_google_service
 SHEETS_ID = os.environ.get("GOOGLE_SHEETS_ID", "")
 SHEET_NAME = "Editorial"
 
-# Columns: A=ID, B=Plataforma, C=Título/Temática, D=Artículo, F=Rojo(no), G=Verde(sí)/Lápiz
+# Columns: A=ID, B=Plataforma, C=Título/Temática, D=Artículo, F=Rojo(no), G=Verde(sí)/Lápiz, H=Editor Jefe
 
 
 def get_editorial_articles(only_pending: bool = True) -> list:
@@ -204,3 +204,18 @@ def mark_article(row: int, action: str) -> str:
     ).execute()
 
     return f"{label} — fila {row} actualizada en Google Sheets."
+
+
+def set_editor_verdict(row: int, verdict: str) -> str:
+    """Write the editor-in-chief verdict in column H for a given row."""
+    from datetime import datetime
+    service = get_google_service("sheets", "v4")
+    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+    cell_value = f"{verdict} — {timestamp}"
+    service.spreadsheets().values().update(
+        spreadsheetId=SHEETS_ID,
+        range=f"{SHEET_NAME}!H{row}",
+        valueInputOption="USER_ENTERED",
+        body={"values": [[cell_value]]},
+    ).execute()
+    return f"Columna H fila {row}: {cell_value}"
