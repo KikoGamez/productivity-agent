@@ -587,33 +587,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Audio files sent as documents → transcribe only (no agent processing)
-    if _is_audio(mime, doc.file_name or ""):
-        groq_key = os.environ.get("GROQ_API_KEY", "")
-        if not groq_key:
-            await update.message.reply_text("⚠️ GROQ_API_KEY no configurada. No puedo transcribir audios.")
-            return
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        try:
-            file = await context.bot.get_file(doc.file_id)
-            audio_bytes = await file.download_as_bytearray()
-            filename = doc.file_name or "audio.m4a"
-            transcription = await asyncio.to_thread(
-                groq_client.audio.transcriptions.create,
-                file=(filename, bytes(audio_bytes)),
-                model="whisper-large-v3",
-                language="es",
-            )
-            text = transcription.text.strip()
-            if not text:
-                await update.message.reply_text("⚠️ No pude entender el audio.")
-                return
-            text = await asyncio.to_thread(_clean_transcription, text)
-            await update.message.reply_text(text)
-        except Exception as exc:
-            await update.message.reply_text(f"⚠️ Error transcribiendo audio: {exc}")
-        return
-
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_document")
 
     try:
@@ -667,43 +640,6 @@ def _clean_transcription(text: str) -> str:
     return response.content[0].text.strip()
 
 
-async def _transcribe_and_process(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                   audio_bytes: bytes, filename: str):
-    """Shared transcription logic for voice messages, audio files, and audio documents."""
-    transcription = await asyncio.to_thread(
-        groq_client.audio.transcriptions.create,
-        file=(filename, audio_bytes),
-        model="whisper-large-v3",
-        language="es",
-    )
-    text = transcription.text.strip()
-
-    if not text:
-        await update.message.reply_text("⚠️ No pude entender el audio.")
-        return
-
-    # Post-process: fix punctuation and transcription errors without changing content
-    text = await asyncio.to_thread(_clean_transcription, text)
-
-    # If starts with a transcription keyword, strip it and return plain text only
-    lower = text.lower()
-    transcribe_prefixes = ["transcríbeme esto", "transcribeme esto",
-                           "transcríbeme", "transcribeme",
-                           "transcripción", "transcripcion"]
-    is_transcribe_only = False
-    for prefix in transcribe_prefixes:
-        if lower.startswith(prefix):
-            text = text[len(prefix):].lstrip(" .,;:—-")
-            is_transcribe_only = True
-            break
-    if is_transcribe_only:
-        await update.message.reply_text(text)
-    else:
-        # Process as a regular message through the agent
-        await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
-        await _process_message(update, context, text)
-
-
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
@@ -715,41 +651,39 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         voice_file = await context.bot.get_file(update.message.voice.file_id)
         audio_bytes = await voice_file.download_as_bytearray()
-        await _transcribe_and_process(update, context, bytes(audio_bytes), "audio.ogg")
 
-    except Exception as exc:
-        await update.message.reply_text(f"⚠️ Error transcribiendo audio: {exc}")
+        transcription = await asyncio.to_thread(
+            groq_client.audio.transcriptions.create,
+            file=("audio.ogg", bytes(audio_bytes)),
+            model="whisper-large-v3",
+            language="es",
+        )
+        text = transcription.text.strip()
 
+        if not text:
+            await update.message.reply_text("⚠️ No pude entender el audio.")
+            return
 
-AUDIO_EXTENSIONS = {".m4a", ".mp3", ".mp4", ".wav", ".ogg", ".oga", ".flac", ".webm", ".mpga", ".mpeg"}
-AUDIO_MIMES = {"audio/"}
+        # Post-process: fix punctuation and transcription errors without changing content
+        text = await asyncio.to_thread(_clean_transcription, text)
 
-
-def _is_audio(mime: str, filename: str) -> bool:
-    """Check if a file is an audio file by mime type or extension."""
-    if mime and mime.startswith("audio/"):
-        return True
-    if filename:
-        ext = os.path.splitext(filename)[1].lower()
-        return ext in AUDIO_EXTENSIONS
-    return False
-
-
-async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle audio files sent via Telegram (mp3, m4a, etc.)."""
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    if not groq_key:
-        await update.message.reply_text("⚠️ GROQ_API_KEY no configurada. No puedo transcribir audios.")
-        return
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    try:
-        audio = update.message.audio
-        audio_file = await context.bot.get_file(audio.file_id)
-        audio_bytes = await audio_file.download_as_bytearray()
-        filename = audio.file_name or "audio.m4a"
-        await _transcribe_and_process(update, context, bytes(audio_bytes), filename)
+        # If starts with a transcription keyword, strip it and return plain text only
+        lower = text.lower()
+        transcribe_prefixes = ["transcríbeme esto", "transcribeme esto",
+                               "transcríbeme", "transcribeme",
+                               "transcripción", "transcripcion"]
+        is_transcribe_only = False
+        for prefix in transcribe_prefixes:
+            if lower.startswith(prefix):
+                text = text[len(prefix):].lstrip(" .,;:—-")
+                is_transcribe_only = True
+                break
+        if is_transcribe_only:
+            await update.message.reply_text(text)
+        else:
+            # Process as a regular message through the agent
+            await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
+            await _process_message(update, context, text)
 
     except Exception as exc:
         await update.message.reply_text(f"⚠️ Error transcribiendo audio: {exc}")
@@ -777,7 +711,6 @@ def main():
     # Message handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.AUDIO, handle_audio))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
     # Scheduled jobs
