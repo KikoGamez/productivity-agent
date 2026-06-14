@@ -842,9 +842,9 @@ def main():
     #         google_token_keepalive_job,
     #         time=datetime.time(6, 0, 0, tzinfo=MADRID_TZ),
     #     )
-        print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid | Token keep-alive: diario 06:00")
-    else:
-        print("⚠️ TELEGRAM_CHAT_ID no configurado — mensajes automáticos desactivados. Usa /myid para obtenerlo.")
+    #     print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid | Token keep-alive: diario 06:00")
+    # else:
+    #     print("⚠️ TELEGRAM_CHAT_ID no configurado — mensajes automáticos desactivados. Usa /myid para obtenerlo.")
 
     google_vars = [k for k in os.environ if k.startswith("GOOGLE")]
     print(f"🔑 Variables GOOGLE detectadas: {google_vars}")
