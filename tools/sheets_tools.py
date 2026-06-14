@@ -207,6 +207,36 @@ def mark_article(row: int, action: str) -> str:
     return f"{label} — fila {row} actualizada en Google Sheets."
 
 
+def create_article(platform: str, topic: str, article_text: str) -> dict:
+    """Append a new row to the Editorial sheet with a generated article.
+    Returns the row number and article ID so it can be reviewed afterwards.
+    """
+    service = get_google_service("sheets", "v4")
+
+    # Read existing rows to determine next ID
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=SHEETS_ID, range=f"{SHEET_NAME}!A:A")
+        .execute()
+    )
+    rows = result.get("values", [])
+    next_row = len(rows) + 1  # 1-indexed, after last existing row
+    next_id = str(next_row - 1)  # ID = row count minus header
+
+    new_row = [next_id, platform, topic, article_text, "Pendiente", False, False]
+
+    service.spreadsheets().values().append(
+        spreadsheetId=SHEETS_ID,
+        range=f"{SHEET_NAME}!A:G",
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body={"values": [new_row]},
+    ).execute()
+
+    return {"fila": next_row, "id": next_id, "plataforma": platform, "titulo": topic}
+
+
 def set_editor_verdict(row: int, verdict: str) -> str:
     """Write the editor-in-chief verdict in column H for a given row."""
     from datetime import datetime

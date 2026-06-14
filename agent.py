@@ -18,9 +18,10 @@ from tools.gmail_tools import read_emails, get_email_body
 from tools.memory_tools import get_memory, update_memory
 from tools.contacts_tools import add_contact, get_contacts, update_contact
 from tools.documents_tools import save_document, search_documents, get_document_content
-from tools.sheets_tools import get_editorial_articles, mark_article, get_editorial_style, get_editorial_references
+from tools.sheets_tools import get_editorial_articles, mark_article, get_editorial_style, get_editorial_references, create_article
 from tools.editor_agent import review_article
 from tools.search_tools import web_search
+from tools.conversation_memory import get_recent_summaries, search_summaries, get_summary_content
 
 client = anthropic.Anthropic()
 
@@ -44,6 +45,31 @@ def get_memory_cached() -> str:
 def invalidate_memory_cache():
     global _memory_cache_ts
     _memory_cache_ts = 0.0
+
+
+# ─────────────────────────────────────────────
+# Conversation summaries cache
+# ─────────────────────────────────────────────
+
+_summaries_cache: list = []
+_summaries_cache_ts: float = 0.0
+_SUMMARIES_TTL = 300  # refresh every 5 minutes
+
+
+def get_summaries_cached(limit: int = 5) -> list:
+    global _summaries_cache, _summaries_cache_ts
+    if time.time() - _summaries_cache_ts > _SUMMARIES_TTL:
+        try:
+            _summaries_cache = get_recent_summaries(limit=limit)
+        except Exception:
+            _summaries_cache = []
+        _summaries_cache_ts = time.time()
+    return _summaries_cache
+
+
+def invalidate_summaries_cache():
+    global _summaries_cache_ts
+    _summaries_cache_ts = 0.0
 
 
 # ─────────────────────────────────────────────
@@ -346,6 +372,34 @@ TOOLS = [
         },
     },
     {
+        "name": "create_article",
+        "description": (
+            "Genera y guarda un artículo editorial en el Google Sheet. "
+            "ANTES de llamar a esta herramienta, DEBES leer get_editorial_style y get_editorial_references "
+            "para la plataforma indicada y generar el artículo siguiendo esas reglas. "
+            "Después de crear el artículo, lanza review_article automáticamente."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string",
+                    "enum": ["Economía Digital", "LinkedIn"],
+                    "description": "Plataforma destino del artículo.",
+                },
+                "topic": {
+                    "type": "string",
+                    "description": "Temática o título del artículo.",
+                },
+                "article_text": {
+                    "type": "string",
+                    "description": "Texto completo del artículo desarrollado.",
+                },
+            },
+            "required": ["platform", "topic", "article_text"],
+        },
+    },
+    {
         "name": "mark_article",
         "description": "Marca una fila del Sheet Editorial como aprobada, rechazada o aprobada con modificaciones.",
         "input_schema": {
@@ -555,6 +609,47 @@ TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "search_conversation_summaries",
+        "description": (
+            "Busca en los resúmenes de conversaciones anteriores. "
+            "Úsalo cuando el usuario pregunte '¿de qué hablamos sobre X?', "
+            "'¿cuándo decidimos Y?', o cuando necesites contexto de sesiones pasadas "
+            "que no esté en los últimos 5 resúmenes del sistema."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tema": {
+                    "type": "string",
+                    "description": "Tema o palabra clave a buscar en los resúmenes",
+                },
+                "persona": {
+                    "type": "string",
+                    "description": "Persona mencionada (opcional)",
+                },
+                "dias": {
+                    "type": "integer",
+                    "description": "Buscar en los últimos N días (por defecto 30)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_conversation_summary",
+        "description": "Obtiene el resumen completo de una sesión de conversación por su ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary_id": {
+                    "type": "string",
+                    "description": "ID del resumen obtenido con search_conversation_summaries",
+                }
+            },
+            "required": ["summary_id"],
+        },
+    },
 ]
 
 
@@ -665,6 +760,14 @@ def execute_tool(name: str, tool_input: dict) -> str:
             refs = get_editorial_references(platform=tool_input.get("platform"))
             return json.dumps(refs, ensure_ascii=False, indent=2) if refs else "No hay referencias definidas."
 
+        elif name == "create_article":
+            result = create_article(
+                platform=tool_input["platform"],
+                topic=tool_input["topic"],
+                article_text=tool_input["article_text"],
+            )
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
         elif name == "mark_article":
             return mark_article(
                 row=tool_input["row"],
@@ -752,6 +855,17 @@ def execute_tool(name: str, tool_input: dict) -> str:
                 indent=2,
             )
 
+        elif name == "search_conversation_summaries":
+            results = search_summaries(
+                tema=tool_input.get("tema"),
+                persona=tool_input.get("persona"),
+                dias=tool_input.get("dias", 30),
+            )
+            return json.dumps(results, ensure_ascii=False, indent=2) if results else "No se encontraron resúmenes."
+
+        elif name == "get_conversation_summary":
+            return get_summary_content(tool_input["summary_id"])
+
         else:
             return f"Error: herramienta '{name}' no reconocida."
 
@@ -771,9 +885,19 @@ def _build_system_prompt(extra_context: str = "") -> str:
     )
     memory = get_memory_cached()
     memory_section = f"\nMEMORIA (contexto de conversaciones anteriores):\n{memory}\n" if memory else ""
+
+    summaries = get_summaries_cached()
+    if summaries:
+        parts = []
+        for s in summaries:
+            parts.append(f"--- {s.get('title', 'Sesión')} ({s.get('date', '')}) ---\n{s.get('summary_text', '')}")
+        summaries_section = "\nRESÚMENES DE CONVERSACIONES RECIENTES (memoria episódica):\n" + "\n\n".join(parts) + "\n"
+    else:
+        summaries_section = ""
+
     rag_section = f"\n{extra_context}\n" if extra_context else ""
     return f"""Eres un asistente de productividad personal autónomo. Hoy es {today}.
-{memory_section}{rag_section}
+{memory_section}{summaries_section}{rag_section}
 
 RAMAS DE TRABAJO Y OBJETIVOS SEMANALES:
 {branches_text}
@@ -804,7 +928,13 @@ COMPORTAMIENTO AUTÓNOMO:
 • Encadena herramientas sin pedir permiso para cada paso intermedio
 • Al recibir notas de reunión → guárdalas Y crea todas las tareas detectadas
 • Al revisar emails → identifica acciones y propone crear tareas
-• Al generar o revisar artículos editoriales → SIEMPRE pasa el artículo por review_article
+• Al generar artículos editoriales (cuando el usuario pida escribir sobre una temática):
+  1. Llama a get_editorial_style y get_editorial_references para la plataforma
+  2. Genera el artículo completo siguiendo las reglas de estilo y el tono de las referencias
+  3. Llama a create_article para guardarlo en el Sheet Editorial
+  4. Lanza review_article automáticamente con el texto y la fila creada
+  5. Muestra el veredicto del editor jefe al usuario
+• Al revisar artículos ya existentes → SIEMPRE pasa el artículo por review_article
   ANTES de marcarlo como aprobado. NUNCA apruebes un artículo sin la revisión del editor jefe.
   Si el editor jefe dice REQUIERE CAMBIOS o RECHAZADO, muestra las correcciones al usuario.
 • Al generar la agenda:
@@ -813,31 +943,45 @@ COMPORTAMIENTO AUTÓNOMO:
   3. Si el usuario confirma, bloquéalos TODOS en Google Calendar
 • Propón siempre entre 6 y 9 horas de trabajo diario (lunes-viernes)
 
-MEMORIA A LARGO PLAZO — MUY IMPORTANTE:
-Eres el asistente personal de este usuario. Tu memoria es tu herramienta más valiosa.
-GUARDA EN MEMORIA PROACTIVAMENTE, sin que el usuario te lo pida, cualquier información estructural:
-• Trabajo actual, empresa, rol, proyectos en curso
-• Situaciones personales relevantes (búsqueda de trabajo, inversores, negociaciones...)
-• Preferencias y hábitos (horarios, forma de trabajar, herramientas preferidas)
-• Contactos clave y su relación con el usuario
-• Decisiones importantes tomadas
-• Contexto de proyectos (estado actual, próximos pasos, bloqueos)
-• Cualquier dato que cambie cómo debes ayudarle en el futuro
+MEMORIA A LARGO PLAZO — COMPORTAMIENTO SILENCIOSO:
 
-CUÁNDO actualizar la memoria — HAZLO CON FRECUENCIA:
-• DURANTE la conversación, no solo al final. Si el usuario te cuenta algo importante, guárdalo YA.
-• Cuando mencione personas, empresas, proyectos, reuniones, decisiones
-• Cuando te diga qué ha hecho, qué va a hacer, o qué ha cambiado
-• Cuando exprese preferencias, frustraciones o correcciones
-• Cuando tome decisiones o cambie de planes
-• REGLA: si dudas entre guardar o no guardar, GUARDA.
+🔴 REGLA ABSOLUTA: NUNCA menciones la memoria en tu respuesta al usuario.
+Nada de "actualizo la memoria", "guardaré esto", "🧠 Memoria actualizada",
+"lo añado a mi memoria", ni similares. Al usuario NO le interesa saber que
+guardas memoria — es un detalle interno que no necesita ver.
 
-CÓMO actualizar la memoria:
-• Llama a get_memory PRIMERO para leer la memoria actual
-• Llama a update_memory con el contenido COMPLETO (memoria anterior + lo nuevo integrado)
-• Organiza por secciones: ## Trayectoria profesional / ## Trabajo y proyectos activos / ## Contactos clave / ## Situación personal / ## Preferencias y hábitos / ## Decisiones recientes / ## Contexto y notas
-• NUNCA borres información anterior a menos que el usuario la corrija explícitamente
-• Sé detallado. Incluye fechas, nombres, y contexto. La memoria es tu recurso más valioso.
+FLUJO en cada turno:
+1º EJECUTA todas las acciones pedidas con las herramientas correspondientes
+   (create_task, update_task_status, block_calendar_time, etc.)
+2º SILENCIOSAMENTE, tras ejecutar, llama a get_memory + update_memory si hay
+   información nueva relevante (info personal, personas, preferencias, decisiones,
+   estado de proyectos). NO lo anuncies.
+3º Responde al usuario SOLO sobre lo que hiciste a nivel de acciones concretas,
+   igual que siempre: breve, directo, en español. Sin mencionar la memoria.
+
+EJEMPLO CORRECTO:
+Usuario: "Crea tarea X con prioridad alta para el viernes"
+Tú: [tool call: create_task(...)] [tool call: get_memory()] [tool call: update_memory(...)]
+Respuesta final al usuario: "✅ Tarea X creada con prioridad alta para el viernes."
+(NO dices nada de memoria)
+
+EJEMPLO INCORRECTO (NO HAGAS ESTO):
+"Ahora creo la tarea X y actualizo la memoria con todo lo acumulado de esta sesión:"
+(Esto es FALLO GRAVE: anuncias memoria en lugar de ejecutar)
+
+Organización interna de la memoria (para cuando llames a update_memory):
+## Trayectoria profesional / ## Trabajo y proyectos activos /
+## Familia y vida personal / ## Contactos clave / ## Situación personal /
+## Preferencias y hábitos / ## Decisiones recientes / ## Contexto y notas
+
+Si dudas entre guardar o no guardar, GUARDA — pero siempre silenciosamente,
+después de ejecutar las acciones.
+
+MEMORIA EPISÓDICA (resúmenes de conversaciones):
+Los últimos 5 resúmenes de sesiones pasadas están incluidos arriba automáticamente.
+Si necesitas buscar en sesiones más antiguas, usa search_conversation_summaries.
+Cuando el usuario pregunte "¿de qué hablamos de X?" o "¿cuándo hicimos Y?", busca
+primero en los resúmenes incluidos y si no encuentras la respuesta, usa la herramienta de búsqueda.
 
 FORMATO DE AGENDA:
 09:00–11:00 | 🚀 AION Growth Studio | Preparar deck inversores (2h)

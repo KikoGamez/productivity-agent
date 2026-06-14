@@ -1,6 +1,7 @@
 import io
 import os
 import json
+import time
 import asyncio
 import datetime
 import anthropic
@@ -16,8 +17,9 @@ try:
 except Exception:
     MADRID_TZ = datetime.timezone(datetime.timedelta(hours=1))
 
-from agent import TOOLS, execute_tool, _build_system_prompt, get_memory_cached, invalidate_memory_cache
+from agent import TOOLS, execute_tool, _build_system_prompt, get_memory_cached, invalidate_memory_cache, invalidate_summaries_cache
 from tools.memory_tools import update_memory
+from tools.conversation_memory import save_conversation_summary
 from tools.rag import get_relevant_context
 
 load_dotenv()
@@ -56,6 +58,11 @@ conversations: dict = _load_conversations()
 
 # Per-chat locks to prevent race conditions when processing concurrent messages
 _chat_locks: dict[str, asyncio.Lock] = {}
+
+# Session gap detection for conversation summaries
+_last_message_ts: dict[str, float] = {}
+SESSION_GAP_SECONDS = int(os.environ.get("SESSION_GAP_MINUTES", "30")) * 60
+MIN_SESSION_MESSAGES = 4  # minimum user messages to trigger a summary
 
 # ─────────────────────────────────────────────
 # Conversation sanitization
@@ -132,15 +139,22 @@ def _sanitize_messages(messages: list) -> list:
 DAILY_BRIEFING_PROMPT = """Genera el briefing diario completo. Sé directo y estructurado. Usa emojis para separar secciones.
 
 Pasos que debes seguir EN ESTE ORDEN:
-1. Llama a web_search con la query: "AI robotics tech companies business news today site:ft.com OR site:nytimes.com OR site:wsj.com OR site:bloomberg.com OR site:reuters.com" — noticias de negocio sobre empresas tecnológicas, IA y robótica
+1. Llama a web_search con la query: "most important artificial intelligence news today, major AI announcements, OpenAI Anthropic Google DeepMind Meta AI Microsoft" — noticias de IA de HOY
 2. Llama a read_emails (yesterday_only=true, unread_only=false, max_emails=30) para revisar emails del día anterior
 3. Llama a generate_agenda_data para obtener eventos del día, tareas pendientes, horas consumidas por rama y déficit de horas
 
 Con todos los datos, genera el briefing con estas secciones EN ESTE ORDEN:
 
-📰 TOP 3 NOTICIAS
-Noticias de negocio sobre empresas de IA, robótica y tecnología: financiación, adquisiciones, lanzamientos de producto con impacto comercial, movimientos de mercado, regulación, alianzas estratégicas. Cubiertas por FT, NYT, WSJ, Bloomberg o Reuters.
-EXCLUIR: análisis macroeconómicos generales sin empresa tech protagonista, noticias de política o economía sin conexión directa con el sector tech.
+📰 TOP 3 NOTICIAS DE IA (y robótica si es muy relevante)
+Prioridad: las noticias más importantes del día sobre INTELIGENCIA ARTIFICIAL.
+Tipo de noticias que quiero:
+• Nuevos modelos o actualizaciones de modelos (GPT, Claude, Gemini, Llama, etc.)
+• Lanzamientos de productos de IA con impacto real
+• Financiación, adquisiciones o alianzas entre empresas de IA
+• Regulación de IA con impacto en la industria
+• Avances técnicos o papers relevantes
+• Robótica: SOLO si la noticia es realmente importante (no relleno)
+EXCLUIR: noticias genéricas de tecnología sin IA como protagonista, macroeconomía, política sin conexión directa con IA.
 Por cada noticia: titular, una frase de contexto y link directo al medio que la haya cubierto mejor.
 
 📧 EMAILS A RESPONDER
@@ -423,22 +437,27 @@ CONVERSACIÓN RECIENTE:
 
 INSTRUCCIONES:
 1. Extrae AGRESIVAMENTE todo lo que sea útil. Mejor guardar de más que de menos.
-2. Información a capturar:
+2. Tu umbral para guardar debe ser MUY BAJO. Si el usuario mencionó CUALQUIER dato personal,
+   familiar, profesional o de preferencias que no esté ya en la memoria → ES UN UPDATE.
+3. Información a capturar (PRIORIDAD ALTA — si aparece algo de esto, SIEMPRE es update):
+   - FAMILIA: nombres de hijos/pareja, edades, gustos, cumpleaños, colegios, actividades
+   - PERSONAS: nombres mencionados, quién son, relación, contexto
+   - PREFERENCIAS: comida, horarios, herramientas, frustraciones, gustos personales
+   - VIDA PERSONAL: salud, planes, viajes, hobbies, situación sentimental
+4. Información a capturar (PRIORIDAD NORMAL):
    - Decisiones tomadas y por qué
    - Tareas completadas, creadas o mencionadas
-   - Nombres de personas mencionadas y su contexto/relación
    - Proyectos: estado actual, avances, bloqueos, próximos pasos
    - Reuniones: con quién, sobre qué, conclusiones
-   - Preferencias expresadas (horarios, formas de trabajar, frustraciones)
-   - Cualquier hecho sobre la vida/trabajo del usuario
    - Fechas y plazos mencionados
-3. NUNCA borres información existente de la memoria a menos que el usuario la haya corregido explícitamente
-4. Integra lo nuevo con lo existente, actualizando datos que hayan cambiado
-5. Organiza en secciones claras con ##
+5. NUNCA borres información existente de la memoria a menos que el usuario la haya corregido explícitamente
+6. Integra lo nuevo con lo existente, actualizando datos que hayan cambiado
+7. Organiza en secciones claras con ##
 
 SECCIONES:
 ## Trayectoria profesional
 ## Trabajo y proyectos activos
+## Familia y vida personal
 ## Contactos clave
 ## Situación personal
 ## Preferencias y hábitos
@@ -446,7 +465,8 @@ SECCIONES:
 ## Contexto y notas
 
 Si NO hay absolutamente nada nuevo que añadir, responde SOLO: NO_UPDATE
-Si hay CUALQUIER cosa nueva (aunque parezca menor), responde con la memoria COMPLETA actualizada.""",
+Si hay CUALQUIER cosa nueva (aunque parezca menor), responde con la memoria COMPLETA actualizada.
+IMPORTANTE: ante la duda, SIEMPRE actualiza. Es mejor guardar de más que perder información.""",
             }],
         )
         result = response.content[0].text.strip()
@@ -458,6 +478,87 @@ Si hay CUALQUIER cosa nueva (aunque parezca menor), responde con la memoria COMP
             print("🧠 Memoria: sin cambios")
     except Exception as e:
         print(f"⚠️ Error consolidando memoria: {e}")
+
+
+async def _summarize_session(chat_id: str, session_messages: list):
+    """Background task: generate a detailed narrative summary of the previous session."""
+    text_parts = [_extract_text_from_message(m) for m in session_messages]
+    text_parts = [t for t in text_parts if t]
+
+    # Count user messages — skip trivial sessions
+    user_count = sum(1 for m in session_messages if m.get("role") == "user")
+    if user_count < MIN_SESSION_MESSAGES or len(text_parts) < 4:
+        return
+
+    conversation_text = "\n".join(text_parts)
+    now = datetime.datetime.now(MADRID_TZ)
+    session_title = f"Sesión {now.strftime('%d-%b-%Y %H:%M')}"
+
+    try:
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            messages=[{
+                "role": "user",
+                "content": f"""Eres el sistema de memoria episódica de un asistente personal. Tu trabajo es crear un resumen DETALLADO y NARRATIVO de esta sesión de conversación.
+
+CONVERSACIÓN:
+{conversation_text}
+
+INSTRUCCIONES:
+1. Escribe un resumen NARRATIVO y AMPLIO (no bullet points escuetos). El objetivo es que alguien que lea este resumen entienda exactamente qué pasó en esta sesión.
+2. Incluye:
+   - Qué pidió el usuario y qué se hizo (con detalle)
+   - Decisiones tomadas y su razonamiento
+   - Información nueva que el usuario compartió
+   - Tareas creadas, completadas o discutidas
+   - Personas mencionadas y en qué contexto
+   - Cualquier cambio de planes o prioridades
+   - El tono emocional de la conversación (motivado, frustrado, urgente, reflexivo...)
+3. Longitud objetivo: 400-800 palabras. Sé generoso con el detalle.
+4. Escribe en pasado ("El usuario pidió...", "Se decidió...", "Se crearon las tareas...")
+
+Además, extrae estos metadatos en formato JSON al final, después del resumen, separado por la línea "---METADATA---":
+{{"temas": ["tema1", "tema2"], "personas": ["persona1", "persona2"], "acciones": "Resumen corto de acciones generadas"}}
+
+Si la conversación es trivial (saludos, preguntas sin contenido sustancial), responde SOLO: SKIP""",
+            }],
+        )
+        result = response.content[0].text.strip()
+        if result == "SKIP":
+            print("📝 Sesión trivial, resumen omitido")
+            return
+
+        # Parse narrative and metadata
+        if "---METADATA---" in result:
+            narrative, metadata_str = result.split("---METADATA---", 1)
+            narrative = narrative.strip()
+            try:
+                metadata = json.loads(metadata_str.strip())
+            except json.JSONDecodeError:
+                metadata = {}
+        else:
+            narrative = result
+            metadata = {}
+
+        temas = metadata.get("temas", [])
+        personas = metadata.get("personas", [])
+        acciones = metadata.get("acciones", "")
+
+        await asyncio.to_thread(
+            save_conversation_summary,
+            title=session_title,
+            summary_text=narrative,
+            num_messages=len(session_messages),
+            temas=temas,
+            personas=personas,
+            acciones=acciones,
+        )
+        invalidate_summaries_cache()
+        print(f"📝 Resumen de sesión guardado: {session_title} ({len(narrative)} chars)")
+    except Exception as e:
+        print(f"⚠️ Error generando resumen de sesión: {e}")
 
 
 async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
@@ -478,6 +579,15 @@ async def _process_message(update: Update, context: ContextTypes.DEFAULT_TYPE, u
 async def _process_message_inner(update, context, user_message, chat_id):
     if chat_id not in conversations:
         conversations[chat_id] = []
+
+    # Session gap detection: if >30 min since last message, summarize previous session
+    now_ts = time.time()
+    prev_ts = _last_message_ts.get(chat_id)
+    if prev_ts and (now_ts - prev_ts) > SESSION_GAP_SECONDS:
+        prev_messages = list(conversations[chat_id])
+        if prev_messages:
+            asyncio.create_task(_summarize_session(chat_id, prev_messages))
+    _last_message_ts[chat_id] = now_ts
 
     # Clean any orphaned tool_use blocks before adding new message
     conversations[chat_id] = _sanitize_messages(conversations[chat_id])
@@ -667,18 +777,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Post-process: fix punctuation and transcription errors without changing content
         text = await asyncio.to_thread(_clean_transcription, text)
 
-        # If starts with a transcription keyword, strip it and return plain text only
-        lower = text.lower()
-        transcribe_prefixes = ["transcríbeme esto", "transcribeme esto",
-                               "transcríbeme", "transcribeme",
-                               "transcripción", "transcripcion"]
-        is_transcribe_only = False
-        for prefix in transcribe_prefixes:
-            if lower.startswith(prefix):
-                text = text[len(prefix):].lstrip(" .,;:—-")
-                is_transcribe_only = True
-                break
-        if is_transcribe_only:
+        # If starts with any "transcribe..." variant, strip it and return plain text only
+        # Matches: transcribe, transcríbeme, transcríbelo, transcripción, transcribir, etc.
+        import re
+        transcribe_match = re.match(
+            r"^(transcr[ií](?:b[a-zé]*|pci[oó]n)(?:\s+(?:esto|me\s+esto|lo|me|por\s+favor))?)\b[\s.,;:—-]*",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if transcribe_match:
+            text = text[transcribe_match.end():].lstrip(" .,;:—-")
             await update.message.reply_text(text)
         else:
             # Process as a regular message through the agent
@@ -713,27 +821,27 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    # Scheduled jobs
-    if TELEGRAM_CHAT_ID:
-        job_queue = app.job_queue
-        # Daily briefing at 7:00 AM Madrid time
-        job_queue.run_daily(
-            daily_briefing_job,
-            time=datetime.time(7, 0, 0, tzinfo=MADRID_TZ),
-        )
-        # Weekly summary every Friday at 6:00 PM Madrid time
-        job_queue.run_daily(
-            weekly_summary_job,
-            time=datetime.time(18, 0, 0, tzinfo=MADRID_TZ),
-            days=(4,),  # 0=Monday … 4=Friday
-        )
-        # Google token keep-alive — refresh daily at 06:00 Madrid time
-        # (Google Testing mode tokens expire every 7 days; refreshing daily
-        # ensures the token stays alive even after Railway redeploys)
-        job_queue.run_daily(
-            google_token_keepalive_job,
-            time=datetime.time(6, 0, 0, tzinfo=MADRID_TZ),
-        )
+    # Scheduled jobs (TEMPORARILY DISABLED — reactivate when needed)
+    # if TELEGRAM_CHAT_ID:
+    #     job_queue = app.job_queue
+    #     # Daily briefing at 7:00 AM Madrid time
+    #     job_queue.run_daily(
+    #         daily_briefing_job,
+    #         time=datetime.time(7, 0, 0, tzinfo=MADRID_TZ),
+    #     )
+    #     # Weekly summary every Friday at 6:00 PM Madrid time
+    #     job_queue.run_daily(
+    #         weekly_summary_job,
+    #         time=datetime.time(18, 0, 0, tzinfo=MADRID_TZ),
+    #         days=(4,),  # 0=Monday … 4=Friday
+    #     )
+    #     # Google token keep-alive — refresh daily at 06:00 Madrid time
+    #     # (Google Testing mode tokens expire every 7 days; refreshing daily
+    #     # ensures the token stays alive even after Railway redeploys)
+    #     job_queue.run_daily(
+    #         google_token_keepalive_job,
+    #         time=datetime.time(6, 0, 0, tzinfo=MADRID_TZ),
+    #     )
         print(f"⏰ Briefing diario: 07:00 Madrid | Resumen semanal: viernes 18:00 Madrid | Token keep-alive: diario 06:00")
     else:
         print("⚠️ TELEGRAM_CHAT_ID no configurado — mensajes automáticos desactivados. Usa /myid para obtenerlo.")
